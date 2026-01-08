@@ -1,5 +1,6 @@
 import type { SendMessageInput, SendTelegramInput } from './telegram.repo'
 import { logger } from '@/lib/logger'
+import { env } from '@/lib/env'
 
 /**
  * Business logic for telegram feature
@@ -45,39 +46,14 @@ export class TelegramService {
 
   async sendTelegram(input: SendTelegramInput) {
     try {
-      const message = `
-🩺 *INFORMASI PASIEN*
+      // Prepare mentions
+      const mentions = [...(input.mentions || [])]
+      if (env.TELEGRAM_ADMIN && !mentions.includes(env.TELEGRAM_ADMIN)) {
+        mentions.push(env.TELEGRAM_ADMIN)
+      }
+      const adminContact = mentions.length ? `(${mentions.join(', ')})` : ''
 
-*KODE PASIEN* : ${input.kode_pasien}
-*Request Gender* : ${input.gender_req}
-*Usia* : ${input.usia} tahun
-*Jenis Kelamin* : ${input.jenis_kelamin}
-
-*Keluhan*  
-${input.keluhan}
-
-*Durasi Keluhan*  
-${input.durasi}
-
-*Kondisi Pasien*  
-${input.kondisi}
-
-*Riwayat Penyakit*  
-${input.riwayat}
-
-*Alamat Lengkap*  
-${input.alamat}
-
-*Request Layanan*  
-${input.visit}
-
-*Rencana Kunjungan*  
-${input.jadwal}
-
-────────────────────
-🙏 *Informasi untuk Tim Fisioterapis*  
-Apabila berkenan menangani pasien di atas, silakan hubungi admin melalui *personal chat* dengan menyertakan *KODE PASIEN* serta opsi jadwal kunjungan alternatif.
-      `.trim()
+      const message = this.formatPatientMessage(input, adminContact)
 
       const url = `https://api.telegram.org/bot${this.botToken}/sendMessage`
       
@@ -123,5 +99,29 @@ Apabila berkenan menangani pasien di atas, silakan hubungi admin melalui *person
       logger.error('Error getting bot info:', error)
       throw error
     }
+  }
+
+  private formatPatientMessage(input: SendTelegramInput, adminContact: string): string {
+    let message = ''
+    
+    message += `🩺 *INFORMASI PASIEN*\n\n`
+    message += `*KODE PASIEN* : ${input.kode_pasien}\n`
+    message += `*Request Gender* : ${input.gender_req}\n`
+    message += `*Usia* : ${input.usia} tahun\n`
+    message += `*Jenis Kelamin* : ${input.jenis_kelamin}\n\n`
+
+    message += `*Keluhan*\n${input.keluhan}\n\n`
+    message += `*Durasi Keluhan*\n${input.durasi}\n\n`
+    message += `*Kondisi Pasien*\n${input.kondisi}\n\n`
+    message += `*Riwayat Penyakit*\n${input.riwayat}\n\n`
+    message += `*Alamat Lengkap*\n${input.alamat}\n\n`
+    message += `*Request Layanan*\n${input.visit}\n\n`
+    message += `*Rencana Kunjungan*\n${input.jadwal}\n\n`
+
+    message += `────────────────────\n`
+    message += `🙏 *Informasi untuk Tim Fisioterapis*\n`
+    message += `Apabila berkenan menangani pasien di atas, silakan hubungi admin ${adminContact} melalui *personal chat* dengan menyertakan *KODE PASIEN* serta opsi jadwal kunjungan alternatif.`
+
+    return message
   }
 }

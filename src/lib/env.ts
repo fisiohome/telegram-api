@@ -18,6 +18,7 @@ const envSchema = z.object({
   DATABASE_PASSWORD: z.string(),
   DATABASE_NAME: z.string(),
   SERVICE_AUTH_TOKEN: z.string().optional(), // For dev/staging service auth fallback
+  TELEGRAM_ADMIN : z.string().default("@y9597px"),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;
