@@ -1,0 +1,71 @@
+name: Backend CI/CD
+
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+    branches: [master, dev]
+  workflow_dispatch:
+
+env:
+  BUN_VERSION: latest
+  # PLACEHOLDER: Replace with your actual Coolify Webhook URL
+  COOLIFY_WEBHOOK_URL: https://vps.fisiohome.id/api/v1/deploy?uuid=awkkgcocc8w4wos00swwoowk&force=false
+
+jobs:
+  test-and-validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Note: Add linting or testing steps here if you have them in package.json
+      # - run: bun run lint
+      # - run: bun run test
+
+      - name: Build validation
+        run: |
+          echo "Building application..."
+          bun run build
+          echo "✓ Build validation passed"
+
+      - name: Validate Docker build
+        env:
+          DOCKER_BUILDKIT: 1
+        run: |
+          echo "Validating Dockerfile with BuildKit..."
+          docker build --progress=plain --build-arg BUILDKIT_INLINE_CACHE=1 -t backend-ci-test .
+          echo "✓ Dockerfile OK"
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: test-and-validate
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/dev'
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Coolify
+        env:
+          # Make sure to set this secret in your GitHub repository
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        run: |
+          echo "Triggering Coolify deployment..."
+          # Using the placeholder URL defined in env
+          curl -X GET -H "Authorization: Bearer ${COOLIFY_TOKEN}" "${{ env.COOLIFY_WEBHOOK_URL }}"
+
+  skip-deploy:
+    runs-on: ubuntu-latest
+    needs: test-and-validate
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+
+    steps:
+      - run: echo "Deployment skipped for master branch."
