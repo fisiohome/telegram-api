@@ -9,7 +9,6 @@ on:
 
 env:
   BUN_VERSION: latest
-  # PLACEHOLDER: Replace with your actual Coolify Webhook URL
   COOLIFY_WEBHOOK_URL: https://vps.fisiohome.id/api/v1/deploy?uuid=awkkgcocc8w4wos00swwoowk&force=false
 
 jobs:
@@ -55,11 +54,9 @@ jobs:
 
       - name: Deploy to Coolify
         env:
-          # Make sure to set this secret in your GitHub repository
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
         run: |
           echo "Triggering Coolify deployment..."
-          # Using the placeholder URL defined in env
           curl -X GET -H "Authorization: Bearer ${COOLIFY_TOKEN}" "${{ env.COOLIFY_WEBHOOK_URL }}"
 
   skip-deploy:
