@@ -114,7 +114,7 @@ export async function buildApp() {
     const customHost = c.req.query("host") || env.REDIS_HOST;
     const customUser = c.req.query("user") || env.REDIS_USER;
     const customAuth = c.req.query("auth") || env.REDIS_AUTH;
-    const customDisabled = c.req.query("disabled") === "true" || env.REDIS_DISABLED;
+    // const customDisabled = c.req.query("disabled") === "true" || env.REDIS_DISABLED;
     
     const testResult: any = {
       timestamp: new Date().toISOString(),
@@ -122,7 +122,7 @@ export async function buildApp() {
         host: customHost,
         user: customUser,
         auth: customAuth ? "***SET***" : undefined,
-        disabled: customDisabled,
+        // disabled: customDisabled,
       },
       envConfig: {
         REDIS_DISABLED: env.REDIS_DISABLED,
@@ -159,8 +159,7 @@ export async function buildApp() {
     }
 
     // Test with custom parameters (if not disabled)
-    if (!customDisabled) {
-      try {
+   try {
         const [host, portStr] = customHost.split(":");
         const port = portStr ? parseInt(portStr, 10) : 6379;
 
@@ -198,12 +197,6 @@ export async function buildApp() {
           stack: error.stack,
         };
       }
-    } else {
-      testResult.customConnectionTest = {
-        status: "SKIPPED",
-        message: "Test skipped because disabled=true",
-      };
-    }
 
     return c.json(testResult);
   });

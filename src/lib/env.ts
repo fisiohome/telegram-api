@@ -24,8 +24,9 @@ const envSchema = z.object({
   // Redis Configuration
   REDIS_DISABLED: z
     .string()
-    .transform((val) => val === "true" || val === "1")
-    .default("false"),
+    .optional()
+    .default("false")
+    .transform((val) => val === "true" || val === "1"),
   REDIS_HOST: z.string().default("localhost:6379"),
   REDIS_USER: z.string().optional(),
   REDIS_AUTH: z.string().optional(),
