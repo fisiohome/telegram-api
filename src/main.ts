@@ -4,6 +4,7 @@ import { colors } from 'consola/utils'
 import { buildApp } from './app'
 import { env } from './lib/env'
 import { closeDatabase, initializeDatabase } from './lib/db-init'
+import { closeRedis, initializeRedis } from './lib/redis'
 
 const port = env.API_BASE_PORT;
 
@@ -11,6 +12,9 @@ const port = env.API_BASE_PORT;
   try {
     // Initialize database (read-only)
     await initializeDatabase(consola)
+
+    // Initialize Redis (if enabled)
+    await initializeRedis()
 
     // Build Hono app
     const app = await buildApp()
@@ -42,6 +46,9 @@ const port = env.API_BASE_PORT;
 
         // Close database connection
         await closeDatabase(consola)
+
+        // Close Redis connection
+        await closeRedis()
 
         consola.success('Graceful shutdown completed')
         process.exit(0)

@@ -22,7 +22,10 @@ const envSchema = z.object({
   TELEGRAM_WEBHOOK_SECRET_TOKEN: z.string().optional(), // For webhook validation
   TELEGRAM_COMMAND_WHITELIST: z.string().optional(), // Comma-separated user IDs or @usernames, or * for all
   // Redis Configuration
-  REDIS_DISABLED: z.coerce.boolean().default(false),
+  REDIS_DISABLED: z
+    .string()
+    .transform((val) => val === "true" || val === "1")
+    .default("false"),
   REDIS_HOST: z.string().default("localhost:6379"),
   REDIS_USER: z.string().optional(),
   REDIS_AUTH: z.string().optional(),
