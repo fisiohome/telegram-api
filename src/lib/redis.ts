@@ -22,7 +22,7 @@ export async function initializeRedis() {
     redis = new Redis({
       host: host || "localhost",
       port,
-      username: env.REDIS_USER || undefined,
+      username: env.REDIS_USER && env.REDIS_USER.length > 0 ? env.REDIS_USER : undefined,
       password: env.REDIS_AUTH || undefined,
       retryStrategy(times) {
         const delay = Math.min(times * 50, 2000);
