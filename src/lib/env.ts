@@ -20,6 +20,7 @@ const envSchema = z.object({
   SERVICE_AUTH_TOKEN: z.string().optional(), // For dev/staging service auth fallback
   TELEGRAM_ADMIN : z.string().default("@y9597px"),
   TELEGRAM_WEBHOOK_SECRET_TOKEN: z.string().optional(), // For webhook validation
+  TELEGRAM_COMMAND_WHITELIST: z.string().optional(), // Comma-separated user IDs or @usernames, or * for all
   // Redis Configuration
   REDIS_DISABLED: z.coerce.boolean().default(false),
   REDIS_HOST: z.string().default("localhost:6379"),

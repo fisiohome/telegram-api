@@ -293,9 +293,15 @@ export class TelegramService {
       const chatIdService = new TelegramChatIdService()
 
       // Check if key already exists
-      const existing = await chatIdService.getChatIdByKey(key)
-      if (existing) {
-        return `⚠️ Key "${key}" already registered with chat ID: ${existing.content_value}\n\nUse a different key or update via API.`
+      const existingKey = await chatIdService.getChatIdByKey(key)
+      if (existingKey) {
+        return `⚠️ Key "${key}" already registered with chat ID: ${existingKey.content_value}\n\nUse a different key or update via API.`
+      }
+
+      // Check if chat_id already exists (with any key)
+      const existingChatId = await chatIdService.getChatIdByValue(chatId)
+      if (existingChatId) {
+        return `⚠️ This chat is already registered with key: "${existingChatId.content_key}"\n\nYou cannot register the same chat with multiple keys.\nIf you need to change the key, please contact the administrator.`
       }
 
       // Save to database
@@ -352,6 +358,17 @@ After registration, you can send messages to this chat using the key.`
       const chatId = String(message.chat.id)
       const text = message.text
 
+      // Extract user info
+      const user = message.from
+      const userId = user?.id
+      const username = user?.username || 'no_username'
+      const firstName = user?.first_name || 'Unknown'
+      const lastName = user?.last_name || ''
+      const fullName = `${firstName} ${lastName}`.trim()
+
+      // Log user info
+      logger.info(`Webhook message from user: @${username} (${fullName}) [ID: ${userId}] in chat ${chatId}`)
+
       // Parse command
       const parsed = this.parseCommand(text)
       if (!parsed) {
@@ -361,6 +378,20 @@ After registration, you can send messages to this chat using the key.`
       }
 
       const { command, args } = parsed
+      logger.info(`Command: /${command} | User: @${username} | Chat: ${chatId}`)
+
+      // Check whitelist for ALL commands
+      const isAllowed = await this.checkWhitelist(userId, username)
+      if (!isAllowed) {
+        logger.warn(`User @${username} (${userId}) not in whitelist, command denied`)
+        await this.sendMessage({
+          chat_id: chatId,
+          message: '❌ Access denied.\n\nYou are not authorized to use bot commands.\nPlease contact the administrator.',
+          parse_mode: 'HTML',
+        })
+        return
+      }
+
       let responseText: string
 
       // Handle commands
@@ -388,10 +419,70 @@ After registration, you can send messages to this chat using the key.`
         parse_mode: 'HTML',
       })
 
-      logger.info(`Processed command /${command} from chat ${chatId}`)
+      logger.info(`Processed command /${command} from @${username} in chat ${chatId}`)
     } catch (error) {
       logger.error('Error in webhook handler:', error)
       throw error
+    }
+  }
+
+  /**
+   * Check if user is in whitelist
+   * Returns true if user is allowed, false otherwise
+   * Priority: Database whitelist -> ENV fallback
+   */
+  private async checkWhitelist(userId: number, username: string): Promise<boolean> {
+    try {
+      // Import whitelist service
+      const { TelegramWhitelistService } = await import('@/features/telegram-whitelist')
+      const whitelistService = new TelegramWhitelistService()
+
+      // Get all whitelist entries from database
+      const dbEntries = await whitelistService.getAllWhitelistEntries()
+      const activeEntries = dbEntries.filter(e => e.is_active)
+
+      // If database has entries, use database whitelist
+      if (activeEntries.length > 0) {
+        const userIdStr = String(userId)
+        const usernameWithAt = `@${username}`.toLowerCase()
+        const usernameWithoutAt = username.toLowerCase()
+
+        const isAllowed = activeEntries.some((entry: any) => {
+          const key = entry.content_key.toLowerCase()
+          return key === userIdStr || key === usernameWithAt || key === usernameWithoutAt
+        })
+
+        logger.info(`Whitelist check (DB) for @${username} (${userId}): ${isAllowed ? 'ALLOWED' : 'DENIED'}`)
+        return isAllowed
+      }
+
+      // Fallback to ENV if database is empty
+      const whitelist = env.TELEGRAM_COMMAND_WHITELIST
+      
+      if (!whitelist || whitelist.trim() === '' || whitelist === '*') {
+        // No whitelist or wildcard = allow all
+        logger.info(`Whitelist check (ENV fallback) for @${username}: ALLOWED (wildcard)`)
+        return true
+      }
+
+      // Check ENV whitelist
+      const allowedUsers = whitelist.split(',').map((u: string) => u.trim().toLowerCase())
+      const userIdStr = String(userId)
+      const usernameWithAt = `@${username}`.toLowerCase()
+      const usernameWithoutAt = username.toLowerCase()
+
+      const isAllowed = allowedUsers.some((allowed: string) => 
+        allowed === userIdStr || 
+        allowed === usernameWithAt || 
+        allowed === usernameWithoutAt
+      )
+
+      logger.info(`Whitelist check (ENV fallback) for @${username} (${userId}): ${isAllowed ? 'ALLOWED' : 'DENIED'}`)
+      return isAllowed
+    } catch (error) {
+      logger.error('Error checking whitelist:', error)
+      // On error, deny access for security
+      return false
     }
   }
 }

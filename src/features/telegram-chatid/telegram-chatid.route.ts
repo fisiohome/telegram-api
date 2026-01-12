@@ -147,29 +147,73 @@ telegramChatIdRoutes.put(
 );
 
 /**
- * DELETE /:id
- * Delete (deactivate) a telegram chat ID
+ * POST /chatids/:id/unpublish
+ * Unpublish (deactivate) a chat ID
  */
-telegramChatIdRoutes.delete(
-  "/:id",
+telegramChatIdRoutes.post(
+  "/:id/unpublish",
   describeRoute({
-    description: "Delete (deactivate) a telegram chat ID",
+    description: "Unpublish (deactivate) chat ID - can be restored",
     schema: z.object({ success: z.boolean() }),
     requireServiceAuth: true,
   }),
   requireService(),
   async (c) => {
     const id = c.req.param("id");
-    const success = await chatIdService.deleteChatId(id);
+    const success = await chatIdService.unpublishChatId(id);
 
     if (!success) {
       return notFoundResponse(c, "Chat ID not found");
     }
 
-    return successResponse(
-      c,
-      { success: true },
-      "Chat ID deleted (deactivated) successfully"
-    );
+    return successResponse(c, { success: true }, "Chat ID unpublished successfully");
+  }
+);
+
+/**
+ * POST /chatids/:id/publish
+ * Publish (activate) a chat ID
+ */
+telegramChatIdRoutes.post(
+  "/:id/publish",
+  describeRoute({
+    description: "Publish (activate) chat ID",
+    schema: z.object({ success: z.boolean() }),
+    requireServiceAuth: true,
+  }),
+  requireService(),
+  async (c) => {
+    const id = c.req.param("id");
+    const success = await chatIdService.publishChatId(id);
+
+    if (!success) {
+      return notFoundResponse(c, "Chat ID not found");
+    }
+
+    return successResponse(c, { success: true }, "Chat ID published successfully");
+  }
+);
+
+/**
+ * DELETE /chatids/:id
+ * Hard delete (permanently remove) a chat ID
+ */
+telegramChatIdRoutes.delete(
+  "/:id",
+  describeRoute({
+    description: "Permanently delete chat ID - irreversible",
+    schema: z.object({ success: z.boolean() }),
+    requireServiceAuth: true,
+  }),
+  requireService(),
+  async (c) => {
+    const id = c.req.param("id");
+    const success = await chatIdService.hardDeleteChatId(id);
+
+    if (!success) {
+      return notFoundResponse(c, "Chat ID not found");
+    }
+
+    return successResponse(c, { success: true }, "Chat ID permanently deleted");
   }
 );

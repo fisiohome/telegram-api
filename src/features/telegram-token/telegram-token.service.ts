@@ -283,9 +283,9 @@ export class TelegramTokenService {
   }
 
   /**
-   * Delete (deactivate) a telegram token
+   * Unpublish (deactivate) a token
    */
-  async deleteToken(id: string): Promise<boolean> {
+  async unpublishToken(id: string): Promise<boolean> {
     try {
       const db = getDB();
 
@@ -297,18 +297,73 @@ export class TelegramTokenService {
         .executeTakeFirst();
 
       if (Number(result.numUpdatedRows) > 0) {
-        // Invalidate cache
         await this.invalidateCache();
         await this.invalidateTokenCache(id);
-        await this.refreshTokensCache(); // Refresh in-memory cache
-
-        logger.info(`Deleted (deactivated) telegram token: ${id}`);
+        await this.refreshTokensCache();
+        logger.info(`Unpublished (deactivated) token: ${id}`);
         return true;
       }
 
       return false;
     } catch (error) {
-      logger.error("Error deleting telegram token:", error);
+      logger.error("Error unpublishing token:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Publish (activate) a token
+   */
+  async publishToken(id: string): Promise<boolean> {
+    try {
+      const db = getDB();
+
+      const result = await db
+        .updateTable("generic_content")
+        .set({ is_active: true })
+        .where("id", "=", id)
+        .where("group_key", "=", TELEGRAM_BOT_TOKENS_GROUP_KEY)
+        .executeTakeFirst();
+
+      if (Number(result.numUpdatedRows) > 0) {
+        await this.invalidateCache();
+        await this.invalidateTokenCache(id);
+        await this.refreshTokensCache();
+        logger.info(`Published (activated) token: ${id}`);
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      logger.error("Error publishing token:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Hard delete (permanently remove) a token
+   */
+  async hardDeleteToken(id: string): Promise<boolean> {
+    try {
+      const db = getDB();
+
+      const result = await db
+        .deleteFrom("generic_content")
+        .where("id", "=", id)
+        .where("group_key", "=", TELEGRAM_BOT_TOKENS_GROUP_KEY)
+        .executeTakeFirst();
+
+      if (Number(result.numDeletedRows) > 0) {
+        await this.invalidateCache();
+        await this.invalidateTokenCache(id);
+        await this.refreshTokensCache();
+        logger.info(`Hard deleted token: ${id}`);
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      logger.error("Error hard deleting token:", error);
       throw error;
     }
   }
@@ -580,6 +635,8 @@ export class TelegramTokenService {
         body.secret_token = secretToken;
       }
 
+      logger.info(`Setting webhook for token ${token.content_key}: ${webhookUrl}`);
+      
       const response = await fetch(
         `https://api.telegram.org/bot${token.content_value}/setWebhook`,
         {
@@ -591,13 +648,17 @@ export class TelegramTokenService {
 
       const data = (await response.json()) as any;
 
+      logger.info(`Telegram API response for setWebhook:`, data);
+
       if (!data.ok) {
-        logger.error(`Failed to set webhook: ${data.description}`);
-        throw new Error(data.description || "Failed to set webhook");
+        const errorMsg = data.description || "Failed to set webhook";
+        logger.error(`Failed to set webhook for ${token.content_key}: ${errorMsg}`);
+        logger.error(`Full error response:`, data);
+        throw new Error(`Telegram API error: ${errorMsg}`);
       }
 
       logger.info(
-        `Set webhook for token: ${token.content_key} -> ${webhookUrl}`
+        `Successfully set webhook for token: ${token.content_key} -> ${webhookUrl}`
       );
       return data.result;
     } catch (error) {

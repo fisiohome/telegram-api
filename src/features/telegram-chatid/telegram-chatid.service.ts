@@ -147,6 +147,37 @@ export class TelegramChatIdService {
   }
 
   /**
+   * Get chat ID by content_value (for duplicate check)
+   * Check if a chat_id already exists regardless of the key
+   */
+  async getChatIdByValue(value: string): Promise<ChatIdWithMetadata | null> {
+    try {
+      const db = getDB();
+      const chatId = await db
+        .selectFrom("generic_content")
+        .selectAll()
+        .where("group_key", "=", TELEGRAM_CHAT_IDS_GROUP_KEY)
+        .where("content_value", "=", value)
+        .where("is_active", "is", true)
+        .executeTakeFirst();
+
+      if (!chatId) {
+        return null;
+      }
+
+      return {
+        ...chatId,
+        created_at: new Date(chatId.created_at!),
+        updated_at: new Date(chatId.updated_at!),
+        metadata: await this.getMetadata(chatId.id),
+      };
+    } catch (error) {
+      logger.error("Error getting chat ID by value:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Get all telegram chat IDs (with caching)
    */
   async getAllChatIds(): Promise<ChatIdWithMetadata[]> {
@@ -278,6 +309,89 @@ export class TelegramChatIdService {
       return false;
     } catch (error) {
       logger.error("Error deleting telegram chat ID:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Unpublish (deactivate) a chat ID
+   */
+  async unpublishChatId(id: string): Promise<boolean> {
+    try {
+      const db = getDB();
+
+      const result = await db
+        .updateTable("generic_content")
+        .set({ is_active: false })
+        .where("id", "=", id)
+        .where("group_key", "=", TELEGRAM_CHAT_IDS_GROUP_KEY)
+        .executeTakeFirst();
+
+      if (Number(result.numUpdatedRows) > 0) {
+        await this.invalidateCache();
+        await this.invalidateChatIdCache(id);
+        logger.info(`Unpublished (deactivated) chat ID: ${id}`);
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      logger.error("Error unpublishing chat ID:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Publish (activate) a chat ID
+   */
+  async publishChatId(id: string): Promise<boolean> {
+    try {
+      const db = getDB();
+
+      const result = await db
+        .updateTable("generic_content")
+        .set({ is_active: true })
+        .where("id", "=", id)
+        .where("group_key", "=", TELEGRAM_CHAT_IDS_GROUP_KEY)
+        .executeTakeFirst();
+
+      if (Number(result.numUpdatedRows) > 0) {
+        await this.invalidateCache();
+        await this.invalidateChatIdCache(id);
+        logger.info(`Published (activated) chat ID: ${id}`);
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      logger.error("Error publishing chat ID:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Hard delete (permanently remove) a chat ID
+   */
+  async hardDeleteChatId(id: string): Promise<boolean> {
+    try {
+      const db = getDB();
+
+      const result = await db
+        .deleteFrom("generic_content")
+        .where("id", "=", id)
+        .where("group_key", "=", TELEGRAM_CHAT_IDS_GROUP_KEY)
+        .executeTakeFirst();
+
+      if (Number(result.numDeletedRows) > 0) {
+        await this.invalidateCache();
+        await this.invalidateChatIdCache(id);
+        logger.info(`Hard deleted chat ID: ${id}`);
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      logger.error("Error hard deleting chat ID:", error);
       throw error;
     }
   }

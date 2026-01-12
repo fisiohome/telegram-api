@@ -12,6 +12,7 @@ import {
   batchSetWebhookSchema,
 } from "./telegram-token.repo";
 import { TelegramTokenService } from "./telegram-token.service";
+import { logger } from "@/lib/logger";
 
 const [factory, describeRoute] = createTaggedFactory("Telegram Tokens");
 export const telegramTokenRoutes = factory.createApp();
@@ -127,30 +128,74 @@ telegramTokenRoutes.put(
 );
 
 /**
- * DELETE /tokens/:id
- * Delete (deactivate) a telegram bot token
+ * POST /tokens/:id/unpublish
+ * Unpublish (deactivate) a token
  */
-telegramTokenRoutes.delete(
-  "/:id",
+telegramTokenRoutes.post(
+  "/:id/unpublish",
   describeRoute({
-    description: "Delete (deactivate) a telegram bot token",
+    description: "Unpublish (deactivate) token - can be restored",
     schema: z.object({ success: z.boolean() }),
     requireServiceAuth: true,
   }),
   requireService(),
   async (c) => {
     const id = c.req.param("id");
-    const success = await tokenService.deleteToken(id);
+    const success = await tokenService.unpublishToken(id);
 
     if (!success) {
       return notFoundResponse(c, "Token not found");
     }
 
-    return successResponse(
-      c,
-      { success: true },
-      "Token deleted (deactivated) successfully"
-    );
+    return successResponse(c, { success: true }, "Token unpublished successfully");
+  }
+);
+
+/**
+ * POST /tokens/:id/publish
+ * Publish (activate) a token
+ */
+telegramTokenRoutes.post(
+  "/:id/publish",
+  describeRoute({
+    description: "Publish (activate) token",
+    schema: z.object({ success: z.boolean() }),
+    requireServiceAuth: true,
+  }),
+  requireService(),
+  async (c) => {
+    const id = c.req.param("id");
+    const success = await tokenService.publishToken(id);
+
+    if (!success) {
+      return notFoundResponse(c, "Token not found");
+    }
+
+    return successResponse(c, { success: true }, "Token published successfully");
+  }
+);
+
+/**
+ * DELETE /tokens/:id
+ * Hard delete (permanently remove) a token
+ */
+telegramTokenRoutes.delete(
+  "/:id",
+  describeRoute({
+    description: "Permanently delete token - irreversible",
+    schema: z.object({ success: z.boolean() }),
+    requireServiceAuth: true,
+  }),
+  requireService(),
+  async (c) => {
+    const id = c.req.param("id");
+    const success = await tokenService.hardDeleteToken(id);
+
+    if (!success) {
+      return notFoundResponse(c, "Token not found");
+    }
+
+    return successResponse(c, { success: true }, "Token permanently deleted");
   }
 );
 
@@ -251,9 +296,17 @@ telegramTokenRoutes.post(
     const input = c.req.valid("json");
     
     try {
+      logger.info(`POST webhook request for token ${id}`);
+      logger.info(`Webhook URL: ${input.url}`);
+      logger.info(`Has secret token: ${!!input.secret_token}`);
+      
       const result = await tokenService.setWebhook(id, input.url, input.secret_token);
+      
+      logger.info(`Webhook set successfully, result:`, result);
+      
       return successResponse(c, result, "Webhook set successfully");
     } catch (error: any) {
+      logger.error(`Error in POST webhook endpoint:`, error);
       return badRequestResponse(c, error.message || "Failed to set webhook");
     }
   }
