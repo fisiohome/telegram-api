@@ -254,6 +254,16 @@ export interface FeatureFlags {
   updated_at: Generated<Timestamp>;
 }
 
+export interface GenericContent {
+  content_key: string;
+  content_value: string | null;
+  created_at: Generated<Timestamp | null>;
+  group_key: string;
+  id: Generated<string>;
+  is_active: Generated<boolean | null>;
+  updated_at: Generated<Timestamp | null>;
+}
+
 export interface IndonesianAreas {
   area_type: string | null;
   code: string | null;
@@ -966,6 +976,7 @@ export interface DB {
   bank_details: BankDetails;
   booking_drafts: BookingDrafts;
   feature_flags: FeatureFlags;
+  generic_content: GenericContent;
   indonesian_areas: IndonesianAreas;
   location_services: LocationServices;
   locations: Locations;

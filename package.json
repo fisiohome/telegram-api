@@ -4,8 +4,9 @@
   "scripts": {
     "dev": "bun run --hot src/main.ts",
     "start": "bun run src/main.ts",
-    "build": "bun build src/main.ts --outdir ./dist --target bun"
-  },
+    "build": "bun build src/main.ts --outdir ./dist --target bun",
+    "codegen": "kysely-codegen --out-file ./src/db/schema.ts"
+},
   "dependencies": {
     "@hono/node-server": "^1.13.7",
     "@hono/standard-validator": "^0.2.1",
@@ -17,6 +18,7 @@
     "hono": "^4.11.3",
     "hono-openapi": "^1.1.2",
     "http-status-codes": "^2.3.0",
+    "ioredis": "^5.9.1",
     "kysely": "^0.28.9",
     "pg": "^8.16.3",
     "zod": "^3.24.1",
