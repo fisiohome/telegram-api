@@ -238,22 +238,23 @@ export class TelegramService {
   private formatPatientMessage(input: SendTelegramInput, adminContact: string): string {
     let message = ''
     
-    message += `🩺 *INFORMASI PASIEN*\\n\\n`
-    message += `*KODE PASIEN* : ${input.kode_pasien}\\n`
-    message += `*Request Gender* : ${input.gender_req}\\n`
-    message += `*Usia* : ${input.usia} tahun\\n`
-    message += `*Jenis Kelamin* : ${input.jenis_kelamin}\\n\\n`
+    // Gunakan \n (satu backslash) untuk enter
+    message += `🩺 *INFORMASI PASIEN*\n\n`
+    message += `*KODE PASIEN* : ${input.kode_pasien}\n`
+    message += `*Request Gender* : ${input.gender_req}\n`
+    message += `*Usia* : ${input.usia} tahun\n`
+    message += `*Jenis Kelamin* : ${input.jenis_kelamin}\n\n`
 
-    message += `*Keluhan*\\n${input.keluhan}\\n\\n`
-    message += `*Durasi Keluhan*\\n${input.durasi}\\n\\n`
-    message += `*Kondisi Pasien*\\n${input.kondisi}\\n\\n`
-    message += `*Riwayat Penyakit*\\n${input.riwayat}\\n\\n`
-    message += `*Alamat Lengkap*\\n${input.alamat}\\n\\n`
-    message += `*Request Layanan*\\n${input.visit}\\n\\n`
-    message += `*Rencana Kunjungan*\\n${input.jadwal}\\n\\n`
+    message += `*Keluhan*\n${input.keluhan}\n\n`
+    message += `*Durasi Keluhan*\n${input.durasi}\n\n`
+    message += `*Kondisi Pasien*\n${input.kondisi}\n\n`
+    message += `*Riwayat Penyakit*\n${input.riwayat}\n\n`
+    message += `*Alamat Lengkap*\n${input.alamat}\n\n`
+    message += `*Request Layanan*\n${input.visit}\n\n`
+    message += `*Rencana Kunjungan*\n${input.jadwal}\n\n`
 
-    message += `────────────────────\\n`
-    message += `🙏 *Informasi untuk Tim Fisioterapis*\\n`
+    message += `────────────────────\n`
+    message += `🙏 *Informasi untuk Tim Fisioterapis*\n`
     message += `Apabila berkenan menangani pasien di atas, silakan hubungi admin ${adminContact} melalui *personal chat* dengan menyertakan *KODE PASIEN* serta opsi jadwal kunjungan alternatif.`
 
     return message
