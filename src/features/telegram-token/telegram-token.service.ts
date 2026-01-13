@@ -372,6 +372,8 @@ export class TelegramTokenService {
    * Get next active token using round-robin logic
    * This is the key method for token rotation
    * Uses in-memory cache to avoid DB reads on every request
+   * 
+   * If only 1 token is active, skip rotation and use it directly
    */
   async getNextActiveToken(): Promise<TokenWithMetadata | null> {
     try {
@@ -384,45 +386,56 @@ export class TelegramTokenService {
       );
 
       if (activeTokens.length === 0) {
-        logger.warn("No active telegram tokens found in memory");
+        // No tokens in DB, caller should fallback to ENV
+        logger.debug("No active telegram tokens found in DB, will fallback to ENV");
         return null;
       }
 
       let selectedToken;
-      const redis = getRedis();
 
-      // Get last used token ID from Redis
-      if (redis) {
-        const lastUsedId = await redis.get(this.CACHE_KEY_LAST_USED);
+      // If only 1 token, skip rotation logic entirely
+      if (activeTokens.length === 1) {
+        selectedToken = activeTokens[0];
+        logger.debug(`Using single active token: ${selectedToken.content_key}`);
+      } else {
+        // Multiple tokens - use round-robin rotation
+        const redis = getRedis();
 
-        if (lastUsedId) {
-          // Find the index of last used token
-          const lastIndex = activeTokens.findIndex((t) => t.id === lastUsedId);
+        // Get last used token ID from Redis
+        if (redis) {
+          const lastUsedId = await redis.get(this.CACHE_KEY_LAST_USED);
 
-          if (lastIndex !== -1) {
-            // Get next token (round-robin)
-            const nextIndex = (lastIndex + 1) % activeTokens.length;
-            selectedToken = activeTokens[nextIndex];
+          if (lastUsedId) {
+            // Find the index of last used token
+            const lastIndex = activeTokens.findIndex((t) => t.id === lastUsedId);
+
+            if (lastIndex !== -1) {
+              // Get next token (round-robin)
+              const nextIndex = (lastIndex + 1) % activeTokens.length;
+              selectedToken = activeTokens[nextIndex];
+            } else {
+              // Last used token not found (might be inactive), use first
+              selectedToken = activeTokens[0];
+            }
           } else {
-            // Last used token not found (might be inactive), use first
+            // No last used token, use first
             selectedToken = activeTokens[0];
           }
+
+          // Save the selected token as last used
+          await redis.set(this.CACHE_KEY_LAST_USED, selectedToken.id);
         } else {
-          // No last used token, use first
+          // No Redis, just use first active token
           selectedToken = activeTokens[0];
         }
 
-        // Save the selected token as last used
-        await redis.set(this.CACHE_KEY_LAST_USED, selectedToken.id);
-      } else {
-        // No Redis, just use first active token
-        selectedToken = activeTokens[0];
+        logger.debug(`Selected token via rotation: ${selectedToken.content_key}`);
       }
 
       // Increment usage
       await this.incrementUsage(selectedToken.id);
 
-      logger.info(`Selected token for use: ${selectedToken.content_key} (from memory cache)`);
+      logger.info(`Using token: ${selectedToken.content_key}`);
 
       return selectedToken;
     } catch (error) {
