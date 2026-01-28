@@ -1,0 +1,98 @@
+name: Backend CI/CD
+
+on:
+  push:
+    branches: [master, main, dev]
+  pull_request:
+    branches: [master, main, dev]
+  workflow_dispatch:
+
+env:
+  BUN_VERSION: latest
+  COOLIFY_WEBHOOK_URL: https://vps.fisiohome.id/api/v1/deploy?uuid=awkkgcocc8w4wos00swwoowk&force=false
+  COOLIFY_WEBHOOK_URL_PROD : https://vps.fisiohome.id/api/v1/deploy?uuid=ock4cokk08k80wkk4ss4o0g0&force=false
+
+jobs:
+  # Build and validate for ALL events (push and PR)
+  build-and-validate:
+    runs-on: ubuntu-latest
+    name: Build & Validate
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Note: Add linting or testing steps here if you have them in package.json
+      # - run: bun run lint
+      # - run: bun run test
+
+      - name: Build application
+        run: |
+          echo "🔨 Building application..."
+          bun run build
+          echo "✅ Build successful!"
+
+      - name: Validate Docker build
+        env:
+          DOCKER_BUILDKIT: 1
+        run: |
+          echo "🐳 Validating Dockerfile with BuildKit..."
+          docker build --progress=plain --build-arg BUILDKIT_INLINE_CACHE=1 -t backend-ci-test .
+          echo "✅ Docker build validated!"
+
+      - name: PR Build Summary
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "### ✅ PR Build Successful! 🎉" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Target Branch:** \`${{ github.base_ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Source Branch:** \`${{ github.head_ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ TypeScript build passed" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Docker build validated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> 💡 **Note:** This PR was built but NOT deployed. Deployment only happens after merge to target branch." >> $GITHUB_STEP_SUMMARY
+
+  # Deploy to staging (only for dev branch pushes, NOT PRs)
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs: build-and-validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    environment: staging
+    name: Deploy to Staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Coolify
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        run: |
+          echo "🚀 Triggering Coolify deployment to STAGING..."
+          curl -X GET -H "Authorization: Bearer ${COOLIFY_TOKEN}" "${{ env.COOLIFY_WEBHOOK_URL }}"
+          echo "✅ Deployment triggered!"
+
+  # Deploy to production (only for main/master branch pushes, NOT PRs)
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs: build-and-validate
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    environment: production
+    name: Deploy to Production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Coolify
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        run: |
+          echo "🚀 Triggering Coolify deployment to PRODUCTION..."
+          curl -X GET -H "Authorization: Bearer ${COOLIFY_TOKEN}" "${{ env.COOLIFY_WEBHOOK_URL_PROD }}"
+          echo "✅ Deployment triggered!"

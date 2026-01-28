@@ -18,6 +18,18 @@ const envSchema = z.object({
   DATABASE_PASSWORD: z.string(),
   DATABASE_NAME: z.string(),
   SERVICE_AUTH_TOKEN: z.string().optional(), // For dev/staging service auth fallback
+  TELEGRAM_ADMIN : z.string().default("@y9597px"),
+  TELEGRAM_WEBHOOK_SECRET_TOKEN: z.string().optional(), // For webhook validation
+  TELEGRAM_COMMAND_WHITELIST: z.string().optional(), // Comma-separated user IDs or @usernames, or * for all
+  // Redis Configuration
+  REDIS_DISABLED: z
+    .string()
+    .optional()
+    .default("false")
+    .transform((val) => val === "true" || val === "1"),
+  REDIS_HOST: z.string().default("localhost:6379"),
+  REDIS_USER: z.string().optional(),
+  REDIS_AUTH: z.string().optional(),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;

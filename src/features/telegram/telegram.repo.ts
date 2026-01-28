@@ -25,6 +25,7 @@ export const sendTelegramSchema = z.object({
   alamat: z.string(),
   visit: z.string(),
   jadwal: z.string(),
+  mentions: z.array(z.string()).optional(),
 });
 
 export type SendTelegramInput = z.infer<typeof sendTelegramSchema>;

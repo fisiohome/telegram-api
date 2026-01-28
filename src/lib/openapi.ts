@@ -35,23 +35,35 @@ export function setupOpenAPI(app: Hono<HonoEnv>) {
             in: "header" as const,
             name: "X-Service-Name",
             description:
-              "Service name for authentication (e.g., 'telegram-service'). Both X-Service-Name and X-Service-Token headers are required.",
-            "x-default": "telegram-service",
+              "Service name untuk authentication. Harus diisi di semua request.",
           },
           ServiceToken: {
             type: "apiKey" as const,
             in: "header" as const,
             name: "X-Service-Token",
             description:
-              "Service authentication token. Contact admin for the token value.",
-            "x-default": "your-service-token-here",
+              "Service token untuk authentication. Harus diisi di semua request.",
           },
         },
       },
+      security: [
+        {
+          ServiceAuth: [],
+          ServiceToken: [],
+        },
+      ],
     };
     const handler = openAPIRouteHandler(app as any, { documentation });
     return handler(c as any, next);
   });
 
-  app.get("/docs", Scalar({ spec: { url: "/openapi.json" } }));
+  app.get(
+    "/docs",
+    Scalar({
+      spec: { url: "/openapi.json" },
+      metaData: {
+        title: `${NAME} - API Documentation`,
+      },
+    }),
+  );
 }
