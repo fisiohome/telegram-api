@@ -10,6 +10,7 @@ on:
 env:
   BUN_VERSION: latest
   COOLIFY_WEBHOOK_URL: https://vps.fisiohome.id/api/v1/deploy?uuid=awkkgcocc8w4wos00swwoowk&force=false
+  COOLIFY_WEBHOOK_URL_PROD : https://vps.fisiohome.id/api/v1/deploy?uuid=ock4cokk08k80wkk4ss4o0g0&force=false
 
 jobs:
   # Build and validate for ALL events (push and PR)
@@ -77,15 +78,21 @@ jobs:
           curl -X GET -H "Authorization: Bearer ${COOLIFY_TOKEN}" "${{ env.COOLIFY_WEBHOOK_URL }}"
           echo "✅ Deployment triggered!"
 
-  # Production branches - no auto-deploy
-  skip-production-deploy:
+  # Deploy to production (only for main/master branch pushes, NOT PRs)
+  deploy-production:
     runs-on: ubuntu-latest
     needs: build-and-validate
     if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
-    name: Production Ready
+    environment: production
+    name: Deploy to Production
 
     steps:
-      - run: |
-          echo "✅ Build validated for production branch"
-          echo "ℹ️  Manual deployment required for production"
-          echo "Branch: ${{ github.ref_name }}"
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Coolify
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        run: |
+          echo "🚀 Triggering Coolify deployment to PRODUCTION..."
+          curl -X GET -H "Authorization: Bearer ${COOLIFY_TOKEN}" "${{ env.COOLIFY_WEBHOOK_URL_PROD }}"
+          echo "✅ Deployment triggered!"
