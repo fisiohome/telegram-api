@@ -10,7 +10,7 @@ on:
 env:
   BUN_VERSION: latest
   COOLIFY_WEBHOOK_URL: https://vps.fisiohome.id/api/v1/deploy?uuid=awkkgcocc8w4wos00swwoowk&force=false
-  COOLIFY_WEBHOOK_URL_PROD : https://vps.fisiohome.id/api/v1/deploy?uuid=ock4cokk08k80wkk4ss4o0g0&force=false
+  COOLIFY_WEBHOOK_URL_PROD : https://vps.fisiohome.id/api/v1/deploy?uuid=no4g0w0so4c8cggos4w0kks0&force=false
 
 jobs:
   # Build and validate for ALL events (push and PR)
