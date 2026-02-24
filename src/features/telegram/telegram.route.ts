@@ -10,6 +10,7 @@ import {
 } from "./telegram.repo";
 import { TelegramService } from "./telegram.service";
 import { logger } from "@/lib/logger";
+import { TELEGRAM_BROADCAST_TOKEN_KEYS } from "@/lib/constants";
 
 const [factory, describeRoute] = createTaggedFactory("Telegram");
 export const telegramRoutes = factory.createApp();
@@ -17,7 +18,6 @@ export const telegramRoutes = factory.createApp();
 // Initialize telegram service (will use DB tokens with ENV fallback)
 const telegramService = new TelegramService();
 
-// Response schemas for OpenAPI
 const sendMessageResponseSchema = z.object({
   ok: z.boolean(),
   result: z.any(),
@@ -25,7 +25,36 @@ const sendMessageResponseSchema = z.object({
 
 const sendBulkMessageResponseSchema = z.object({
   ok: z.boolean(),
-  result: z.any(),
+  job_id: z.string(),
+  total: z.number(),
+  message: z.string(),
+});
+
+const broadcastStatusResponseSchema = z.object({
+  job_id: z.string(),
+  status: z.enum(["pending", "running", "done", "failed"]),
+  total: z.number(),
+  sent: z.number(),
+  failed: z.number(),
+  started_at: z.string(),
+  finished_at: z.string().optional(),
+  errors: z.array(z.object({ chat_id: z.string(), error: z.string() })),
+  results: z.any().optional(),
+});
+
+/** Valid broadcast type values derived from constants (single source of truth) */
+const broadcastTypeEnum = z.enum(
+  Object.keys(TELEGRAM_BROADCAST_TOKEN_KEYS) as [
+    keyof typeof TELEGRAM_BROADCAST_TOKEN_KEYS,
+    ...Array<keyof typeof TELEGRAM_BROADCAST_TOKEN_KEYS>,
+  ],
+);
+
+/** Request body for the typed broadcast endpoint */
+const sendBulkMessageByTypeSchema = z.object({
+  /** Optional. When provided, use the dedicated bot token for this type. */
+  type: broadcastTypeEnum.optional(),
+  messages: sendBulkMessageSchema,
 });
 
 const sendTelegramResponseSchema = z.object({
@@ -62,21 +91,109 @@ telegramRoutes.post(
 
 /**
  * POST /telegram/send-messages
- * Send multiple telegram messages in bulk
+ * Fire-and-forget: enqueue a bulk broadcast in the background.
+ * Returns 202 immediately with a job_id to track progress.
  */
 telegramRoutes.post(
   "/send-messages",
   describeRoute({
-    description: "Send multiple telegram messages in bulk",
+    description:
+      "Start a background broadcast to multiple recipients. Returns immediately with a job_id.",
     schema: sendBulkMessageResponseSchema,
     requireServiceAuth: true,
   }),
-  requireService(), // Require service authentication
+  requireService(),
   validator("json", sendBulkMessageSchema),
   async (c) => {
     const input = c.req.valid("json");
-    const result = await telegramService.sendBulkMessages(input);
-    return successResponse(c, result, "Bulk messages processed successfully");
+    const jobId = telegramService.startBroadcast(input);
+    return c.json(
+      {
+        ok: true,
+        job_id: jobId,
+        total: input.length,
+        message: `Broadcast queued for ${input.length} recipients. Poll /broadcast-status/${jobId} for progress.`,
+      },
+      202,
+    );
+  },
+);
+
+/**
+ * GET /telegram/broadcast-status/:jobId
+ * Poll the status of an ongoing or completed broadcast job.
+ */
+telegramRoutes.get(
+  "/broadcast-status/:jobId",
+  describeRoute({
+    description: "Get the current status and progress of a broadcast job",
+    schema: broadcastStatusResponseSchema,
+    requireServiceAuth: true,
+  }),
+  requireService(),
+  async (c) => {
+    const jobId = c.req.param("jobId");
+    const job = telegramService.getBroadcastJob(jobId);
+
+    if (!job) {
+      return c.json({ ok: false, error: "Job not found" }, 404);
+    }
+
+    return successResponse(
+      c,
+      {
+        job_id: job.id,
+        status: job.status,
+        total: job.total,
+        sent: job.sent,
+        failed: job.failed,
+        started_at: job.startedAt.toISOString(),
+        finished_at: job.finishedAt?.toISOString(),
+        errors: job.errors,
+        // Only include full results when done (could be large)
+        ...(job.status === "done" && { results: job.results }),
+      },
+      "Broadcast job status retrieved",
+    );
+  },
+);
+
+/**
+ * POST /telegram/send-messages-by-type
+ * Typed broadcast: optionally pin the broadcast to a dedicated bot token.
+ *
+ * Body:
+ *   { type?: "REMINDER" | "ANNOUNCEMENT", messages: [...] }
+ *
+ * - type omitted  → rolling pool (same as /send-messages)
+ * - type provided → dedicated token for that type (e.g. TELEGRAM_REMINDER key)
+ *                   falls back to rolling pool if token not configured in DB
+ */
+telegramRoutes.post(
+  "/send-messages-by-type",
+  describeRoute({
+    description:
+      "Start a typed background broadcast. Supply a type to use a dedicated bot token; omit to use the rolling pool.",
+    schema: sendBulkMessageResponseSchema,
+    requireServiceAuth: true,
+  }),
+  requireService(),
+  validator("json", sendBulkMessageByTypeSchema),
+  async (c) => {
+    const { type, messages } = c.req.valid("json");
+    const jobId = await telegramService.startBroadcastByType(messages, type);
+    return c.json(
+      {
+        ok: true,
+        job_id: jobId,
+        total: messages.length,
+        message:
+          `Broadcast queued for ${messages.length} recipients` +
+          (type ? ` via ${type} bot` : " via rolling pool") +
+          `. Poll /broadcast-status/${jobId} for progress.`,
+      },
+      202,
+    );
   },
 );
 

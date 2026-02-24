@@ -20,3 +20,5 @@ export const commandRegistry: BotCommand[] = [
 
 export type { BotCommand } from "./base.command";
 export type { CommandContext } from "./base.command";
+export type { CommandResponse } from "./base.command";
+export type { InlineKeyboardButton } from "./base.command";

@@ -24,17 +24,39 @@ export interface CommandContext {
 }
 
 /**
+ * Inline keyboard button
+ */
+export interface InlineKeyboardButton {
+  text: string;
+  callback_data: string;
+}
+
+/**
+ * Rich response that supports both plain text replies and replies with
+ * an attached inline keyboard.
+ *
+ * When a command only needs to return plain text it can still return a
+ * simple `string` — the webhook handler accepts either type.
+ */
+export interface CommandResponse {
+  text: string;
+  reply_markup?: {
+    inline_keyboard: InlineKeyboardButton[][];
+  };
+}
+
+/**
  * Interface that every bot command must implement.
  *
  * Fields:
  *  - command      : name WITHOUT slash, e.g. "register"
  *  - description  : one-liner shown in /help list
  *  - requiresAuth : when true, user must be in the whitelist to execute this command
- *  - execute      : handler function — returns the reply text
+ *  - execute      : handler function — returns the reply text or a rich CommandResponse
  */
 export interface BotCommand {
   command: string;
   description: string;
   requiresAuth: boolean;
-  execute(ctx: CommandContext): Promise<string>;
+  execute(ctx: CommandContext): Promise<string | CommandResponse>;
 }

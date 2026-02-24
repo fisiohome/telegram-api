@@ -6,6 +6,7 @@ import type {
   TokenWithMetadata,
 } from "./telegram-token.repo";
 import { TELEGRAM_BOT_TOKENS_GROUP_KEY } from "./telegram-token.repo";
+import { TELEGRAM_RESERVED_TOKEN_KEYS } from "@/lib/constants";
 import { getDB } from "@/lib/db-init";
 import { getRedis } from "@/lib/redis";
 import { logger } from "@/lib/logger";
@@ -79,12 +80,15 @@ export class TelegramTokenService {
   private async loadTokensToMemory(): Promise<void> {
     try {
       const db = getDB();
-      
+
       const tokens = await db
         .selectFrom("generic_content")
         .selectAll()
         .where("group_key", "=", TELEGRAM_BOT_TOKENS_GROUP_KEY)
         .where("is_active", "is", true)
+        // Exclude dedicated typed-broadcast tokens from the rolling pool
+        // so they are only ever used when explicitly requested by type.
+        .where("content_key", "not in", TELEGRAM_RESERVED_TOKEN_KEYS)
         .orderBy("id", "asc")
         .execute();
 
@@ -94,12 +98,14 @@ export class TelegramTokenService {
           created_at: new Date(token.created_at!),
           updated_at: new Date(token.updated_at!),
           metadata: await this.getMetadata(token.id),
-        }))
+        })),
       );
 
       this.tokensLoadedAt = new Date();
-      
-      logger.info(`Loaded ${this.tokensInMemory.length} active tokens into memory`);
+
+      logger.info(
+        `Loaded ${this.tokensInMemory.length} active tokens into memory`,
+      );
     } catch (error) {
       logger.error("Error loading tokens to memory:", error);
       throw error;
@@ -193,7 +199,7 @@ export class TelegramTokenService {
               created_at: new Date(token.created_at),
               updated_at: new Date(token.updated_at),
               metadata: await this.getMetadata(token.id),
-            }))
+            })),
           );
         }
       }
@@ -212,7 +218,7 @@ export class TelegramTokenService {
         await redis.setex(
           this.CACHE_KEY_ALL,
           this.CACHE_TTL,
-          JSON.stringify(tokens)
+          JSON.stringify(tokens),
         );
       }
 
@@ -222,7 +228,7 @@ export class TelegramTokenService {
           created_at: new Date(token.created_at!),
           updated_at: new Date(token.updated_at!),
           metadata: await this.getMetadata(token.id),
-        }))
+        })),
       );
     } catch (error) {
       logger.error("Error getting all tokens:", error);
@@ -235,7 +241,7 @@ export class TelegramTokenService {
    */
   async updateToken(
     id: string,
-    input: UpdateTokenInput
+    input: UpdateTokenInput,
   ): Promise<TokenWithMetadata | null> {
     try {
       const db = getDB();
@@ -372,7 +378,7 @@ export class TelegramTokenService {
    * Get next active token using round-robin logic
    * This is the key method for token rotation
    * Uses in-memory cache to avoid DB reads on every request
-   * 
+   *
    * If only 1 token is active, skip rotation and use it directly
    */
   async getNextActiveToken(): Promise<TokenWithMetadata | null> {
@@ -382,12 +388,14 @@ export class TelegramTokenService {
 
       // Get active tokens from memory
       const activeTokens = this.tokensInMemory.filter(
-        (t) => t.is_active === true
+        (t) => t.is_active === true,
       );
 
       if (activeTokens.length === 0) {
         // No tokens in DB, caller should fallback to ENV
-        logger.debug("No active telegram tokens found in DB, will fallback to ENV");
+        logger.debug(
+          "No active telegram tokens found in DB, will fallback to ENV",
+        );
         return null;
       }
 
@@ -407,7 +415,9 @@ export class TelegramTokenService {
 
           if (lastUsedId) {
             // Find the index of last used token
-            const lastIndex = activeTokens.findIndex((t) => t.id === lastUsedId);
+            const lastIndex = activeTokens.findIndex(
+              (t) => t.id === lastUsedId,
+            );
 
             if (lastIndex !== -1) {
               // Get next token (round-robin)
@@ -429,7 +439,9 @@ export class TelegramTokenService {
           selectedToken = activeTokens[0];
         }
 
-        logger.debug(`Selected token via rotation: ${selectedToken.content_key}`);
+        logger.debug(
+          `Selected token via rotation: ${selectedToken.content_key}`,
+        );
       }
 
       // Increment usage
@@ -445,11 +457,50 @@ export class TelegramTokenService {
   }
 
   /**
+   * Get a specific token by its content_key.
+   * Used to retrieve dedicated typed-broadcast tokens (e.g. TELEGRAM_REMINDER).
+   * Returns null if not found or inactive.
+   */
+  async getTokenByContentKey(
+    contentKey: string,
+  ): Promise<TokenWithMetadata | null> {
+    try {
+      const db = getDB();
+
+      const token = await db
+        .selectFrom("generic_content")
+        .selectAll()
+        .where("group_key", "=", TELEGRAM_BOT_TOKENS_GROUP_KEY)
+        .where("content_key", "=", contentKey)
+        .where("is_active", "is", true)
+        .executeTakeFirst();
+
+      if (!token) {
+        logger.warn(`Dedicated token not found or inactive: ${contentKey}`);
+        return null;
+      }
+
+      return {
+        ...token,
+        created_at: new Date(token.created_at!),
+        updated_at: new Date(token.updated_at!),
+        metadata: await this.getMetadata(token.id),
+      };
+    } catch (error) {
+      logger.error(
+        `Error getting token by content_key (${contentKey}):`,
+        error,
+      );
+      throw error;
+    }
+  }
+
+  /**
    * Mark a token as banned/inactive
    */
   async markTokenAsBanned(
     tokenId: string,
-    input: RotateTokenInput
+    input: RotateTokenInput,
   ): Promise<boolean> {
     try {
       const db = getDB();
@@ -474,7 +525,7 @@ export class TelegramTokenService {
         await this.refreshTokensCache(); // Refresh in-memory cache to remove banned token
 
         logger.warn(
-          `Token marked as banned: ${tokenId} - ${input.error_message}`
+          `Token marked as banned: ${tokenId} - ${input.error_message}`,
         );
         return true;
       }
@@ -561,7 +612,7 @@ export class TelegramTokenService {
    */
   private async updateMetadata(
     tokenId: string,
-    updates: Partial<TokenMetadata>
+    updates: Partial<TokenMetadata>,
   ): Promise<void> {
     try {
       const redis = getRedis();
@@ -611,7 +662,7 @@ export class TelegramTokenService {
       }
 
       const response = await fetch(
-        `https://api.telegram.org/bot${token.content_value}/getWebhookInfo`
+        `https://api.telegram.org/bot${token.content_value}/getWebhookInfo`,
       );
 
       const data = (await response.json()) as any;
@@ -635,7 +686,7 @@ export class TelegramTokenService {
   async setWebhook(
     tokenId: string,
     webhookUrl: string,
-    secretToken?: string
+    secretToken?: string,
   ): Promise<any> {
     try {
       const token = await this.getTokenById(tokenId);
@@ -648,15 +699,17 @@ export class TelegramTokenService {
         body.secret_token = secretToken;
       }
 
-      logger.info(`Setting webhook for token ${token.content_key}: ${webhookUrl}`);
-      
+      logger.info(
+        `Setting webhook for token ${token.content_key}: ${webhookUrl}`,
+      );
+
       const response = await fetch(
         `https://api.telegram.org/bot${token.content_value}/setWebhook`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
-        }
+        },
       );
 
       const data = (await response.json()) as any;
@@ -665,13 +718,15 @@ export class TelegramTokenService {
 
       if (!data.ok) {
         const errorMsg = data.description || "Failed to set webhook";
-        logger.error(`Failed to set webhook for ${token.content_key}: ${errorMsg}`);
+        logger.error(
+          `Failed to set webhook for ${token.content_key}: ${errorMsg}`,
+        );
         logger.error(`Full error response:`, data);
         throw new Error(`Telegram API error: ${errorMsg}`);
       }
 
       logger.info(
-        `Successfully set webhook for token: ${token.content_key} -> ${webhookUrl}`
+        `Successfully set webhook for token: ${token.content_key} -> ${webhookUrl}`,
       );
       return data.result;
     } catch (error) {
@@ -694,7 +749,7 @@ export class TelegramTokenService {
         `https://api.telegram.org/bot${token.content_value}/deleteWebhook`,
         {
           method: "POST",
-        }
+        },
       );
 
       const data = (await response.json()) as any;
@@ -717,7 +772,7 @@ export class TelegramTokenService {
    */
   async setWebhookBatch(
     webhookUrl: string,
-    secretToken?: string
+    secretToken?: string,
   ): Promise<{ updated: number; failed: number; errors: any[] }> {
     try {
       // Ensure tokens are loaded
@@ -726,13 +781,13 @@ export class TelegramTokenService {
       const activeTokens = this.tokensInMemory.filter((t) => t.is_active);
 
       logger.info(
-        `Setting webhook for ${activeTokens.length} active tokens...`
+        `Setting webhook for ${activeTokens.length} active tokens...`,
       );
 
       const results = await Promise.allSettled(
         activeTokens.map((token) =>
-          this.setWebhook(token.id, webhookUrl, secretToken)
-        )
+          this.setWebhook(token.id, webhookUrl, secretToken),
+        ),
       );
 
       const updated = results.filter((r) => r.status === "fulfilled").length;
@@ -742,7 +797,7 @@ export class TelegramTokenService {
         .map((r: any) => r.reason?.message || "Unknown error");
 
       logger.info(
-        `Batch webhook set complete: ${updated} updated, ${failed} failed`
+        `Batch webhook set complete: ${updated} updated, ${failed} failed`,
       );
 
       return { updated, failed, errors };
@@ -763,7 +818,7 @@ export class TelegramTokenService {
       const activeTokens = this.tokensInMemory.filter((t) => t.is_active);
 
       logger.info(
-        `Getting webhook status for ${activeTokens.length} active tokens...`
+        `Getting webhook status for ${activeTokens.length} active tokens...`,
       );
 
       const results = await Promise.allSettled(
@@ -783,11 +838,11 @@ export class TelegramTokenService {
               error: error?.message || "Failed to get webhook info",
             };
           }
-        })
+        }),
       );
 
       return results.map((r) =>
-        r.status === "fulfilled" ? r.value : r.reason
+        r.status === "fulfilled" ? r.value : r.reason,
       );
     } catch (error) {
       logger.error("Error getting webhook status for all tokens:", error);
