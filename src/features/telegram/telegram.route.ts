@@ -3,7 +3,11 @@ import { createTaggedFactory } from "@/lib/factory";
 import { successResponse } from "@/response/success.response";
 import { validator } from "@/middleware/validator";
 import { requireService } from "@/middleware";
-import { sendMessageSchema, sendTelegramSchema } from "./telegram.repo";
+import {
+  sendMessageSchema,
+  sendTelegramSchema,
+  sendBulkMessageSchema,
+} from "./telegram.repo";
 import { TelegramService } from "./telegram.service";
 import { logger } from "@/lib/logger";
 
@@ -15,6 +19,11 @@ const telegramService = new TelegramService();
 
 // Response schemas for OpenAPI
 const sendMessageResponseSchema = z.object({
+  ok: z.boolean(),
+  result: z.any(),
+});
+
+const sendBulkMessageResponseSchema = z.object({
   ok: z.boolean(),
   result: z.any(),
 });
@@ -48,7 +57,27 @@ telegramRoutes.post(
     const input = c.req.valid("json");
     const result = await telegramService.sendMessage(input);
     return successResponse(c, result, "Message sent successfully");
-  }
+  },
+);
+
+/**
+ * POST /telegram/send-messages
+ * Send multiple telegram messages in bulk
+ */
+telegramRoutes.post(
+  "/send-messages",
+  describeRoute({
+    description: "Send multiple telegram messages in bulk",
+    schema: sendBulkMessageResponseSchema,
+    requireServiceAuth: true,
+  }),
+  requireService(), // Require service authentication
+  validator("json", sendBulkMessageSchema),
+  async (c) => {
+    const input = c.req.valid("json");
+    const result = await telegramService.sendBulkMessages(input);
+    return successResponse(c, result, "Bulk messages processed successfully");
+  },
 );
 
 /**
@@ -68,7 +97,7 @@ telegramRoutes.post(
     const input = c.req.valid("json");
     const result = await telegramService.sendTelegram(input);
     return successResponse(c, result, "Patient notification sent successfully");
-  }
+  },
 );
 
 /**
@@ -86,7 +115,25 @@ telegramRoutes.get(
   async (c) => {
     const result = await telegramService.getMe();
     return successResponse(c, result, "Bot info retrieved successfully");
-  }
+  },
+);
+
+/**
+ * POST /telegram/sync-commands
+ * Sync local commands to Telegram API
+ */
+telegramRoutes.post(
+  "/sync-commands",
+  describeRoute({
+    description: "Sync configured commands to Telegram Bot API",
+    schema: z.object({ ok: z.boolean(), result: z.any() }),
+    requireServiceAuth: true,
+  }),
+  requireService(),
+  async (c) => {
+    const result = await telegramService.syncCommands();
+    return successResponse(c, result, "Commands synced successfully");
+  },
 );
 
 /**
@@ -104,12 +151,12 @@ telegramRoutes.post(
   async (c) => {
     try {
       // Validate secret token from header
-      const secretToken = c.req.header('x-telegram-bot-api-secret-token');
+      const secretToken = c.req.header("x-telegram-bot-api-secret-token");
       const expectedToken = process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN;
 
       if (expectedToken && secretToken !== expectedToken) {
-        logger.warn('Webhook request with invalid secret token');
-        return c.json({ error: 'Unauthorized' }, 403);
+        logger.warn("Webhook request with invalid secret token");
+        return c.json({ error: "Unauthorized" }, 403);
       }
 
       // Parse update from Telegram
@@ -121,9 +168,9 @@ telegramRoutes.post(
       // Always return 200 OK to Telegram (required)
       return c.json({ ok: true }, 200);
     } catch (error: any) {
-      logger.error('Error in webhook endpoint:', error);
+      logger.error("Error in webhook endpoint:", error);
       // Still return 200 to Telegram to avoid retries
       return c.json({ ok: true }, 200);
     }
-  }
+  },
 );

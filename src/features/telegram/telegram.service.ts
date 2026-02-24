@@ -1,7 +1,12 @@
-import type { SendMessageInput, SendTelegramInput } from './telegram.repo'
-import { logger } from '@/lib/logger'
-import { env } from '@/lib/env'
-import { TelegramTokenService } from '@/features/telegram-token'
+import type {
+  SendMessageInput,
+  SendTelegramInput,
+  SendBulkMessageInput,
+} from "./telegram.repo";
+import { logger } from "@/lib/logger";
+import { env } from "@/lib/env";
+import { TelegramTokenService } from "@/features/telegram-token";
+import { commandRegistry } from "@/features/telegram-commands";
 
 /**
  * Business logic for telegram feature
@@ -9,48 +14,51 @@ import { TelegramTokenService } from '@/features/telegram-token'
  */
 
 export class TelegramService {
-  private botToken: string | null = null
-  private tokenService: TelegramTokenService
-  private currentTokenId: string | null = null
-  private readonly MAX_RETRIES = 3
+  private botToken: string | null = null;
+  private tokenService: TelegramTokenService;
+  private currentTokenId: string | null = null;
+  private readonly MAX_RETRIES = 3;
 
   constructor(botToken?: string) {
     // Optional token for backward compatibility
-    this.botToken = botToken || null
-    this.tokenService = new TelegramTokenService()
+    this.botToken = botToken || null;
+    this.tokenService = new TelegramTokenService();
   }
 
   /**
    * Get active bot token
    * Priority: DB tokens (with rotation) -> ENV token
    */
-  private async getActiveToken(): Promise<{ token: string; tokenId: string | null }> {
+  private async getActiveToken(): Promise<{
+    token: string;
+    tokenId: string | null;
+  }> {
     try {
       // Try to get token from DB first
-      const dbToken = await this.tokenService.getNextActiveToken()
-      
+      const dbToken = await this.tokenService.getNextActiveToken();
+
       if (dbToken && dbToken.content_value) {
-        this.currentTokenId = dbToken.id
+        this.currentTokenId = dbToken.id;
         return {
           token: dbToken.content_value,
-          tokenId: dbToken.id
-        }
+          tokenId: dbToken.id,
+        };
       }
 
       // Fallback to ENV token
-      logger.info('No DB tokens available, using ENV token as fallback')
-      this.currentTokenId = null
+      logger.info("No DB tokens available, using ENV token as fallback");
+      this.currentTokenId = null;
       return {
-        token: this.botToken || env.TELEGRAM_BOT_TOKEN || '',
-        tokenId: null
-      }
+        token: this.botToken || env.TELEGRAM_BOT_TOKEN || "",
+        tokenId: null,
+      };
     } catch (error) {
-      logger.error('Error getting active token, falling back to ENV:', error)
-      this.currentTokenId = null
+      logger.error("Error getting active token, falling back to ENV:", error);
+      this.currentTokenId = null;
       return {
-        token: this.botToken || env.TELEGRAM_BOT_TOKEN || '',
-        tokenId: null
-      }
+        token: this.botToken || env.TELEGRAM_BOT_TOKEN || "",
+        tokenId: null,
+      };
     }
   }
 
@@ -58,206 +66,294 @@ export class TelegramService {
    * Check if error indicates a banned/invalid token
    */
   private isBannedTokenError(error: any): boolean {
-    const errorMessage = error?.message || error?.description || String(error)
+    const errorMessage = error?.message || error?.description || String(error);
     const bannedKeywords = [
-      'Forbidden',
-      'Unauthorized',
-      'bot was blocked',
-      'bot was kicked',
-      'token is invalid',
-      'Not Found' // Invalid bot token
-    ]
-    
-    return bannedKeywords.some(keyword => 
-      errorMessage.toLowerCase().includes(keyword.toLowerCase())
-    )
+      "Forbidden",
+      "Unauthorized",
+      "bot was blocked",
+      "bot was kicked",
+      "token is invalid",
+      "Not Found", // Invalid bot token
+    ];
+
+    return bannedKeywords.some((keyword) =>
+      errorMessage.toLowerCase().includes(keyword.toLowerCase()),
+    );
   }
 
   /**
    * Send message with automatic token rotation and retry
    */
   async sendMessage(input: SendMessageInput) {
-    let lastError: any = null
+    let lastError: any = null;
 
     for (let attempt = 0; attempt < this.MAX_RETRIES; attempt++) {
       try {
-        const { token, tokenId } = await this.getActiveToken()
-        
+        const { token, tokenId } = await this.getActiveToken();
+
         if (!token) {
-          throw new Error('No bot token available')
+          throw new Error("No bot token available");
         }
 
-        const url = `https://api.telegram.org/bot${token}/sendMessage`
-        
+        console.log("Sending message to chat", input.chat_id);
+        console.log("Using token", token);
+
+        const url = `https://api.telegram.org/bot${token}/sendMessage`;
+
         const response = await fetch(url, {
-          method: 'POST',
+          method: "POST",
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
             chat_id: input.chat_id,
             text: input.message,
-            parse_mode: input.parse_mode || 'HTML',
+            parse_mode: input.parse_mode || "HTML",
           }),
-        })
+        });
 
-        const data = (await response.json()) as any
+        const data = (await response.json()) as any;
 
         if (!response.ok) {
-          const error = new Error(data.description || 'Failed to send message')
-          
+          const error = new Error(data.description || "Failed to send message");
+
           // Check if token is banned
           if (tokenId && this.isBannedTokenError(data)) {
-            logger.warn(`Token ${tokenId} appears to be banned, marking as inactive`)
+            logger.warn(
+              `Token ${tokenId} appears to be banned, marking as inactive`,
+            );
             await this.tokenService.markTokenAsBanned(tokenId, {
-              error_message: data.description || 'Token banned/invalid'
-            })
-            
+              error_message: data.description || "Token banned/invalid",
+            });
+
             // Retry with next token
-            lastError = error
-            continue
+            lastError = error;
+            continue;
           }
-          
-          throw error
+
+          throw error;
         }
 
-        logger.info(`Message sent to chat ${input.chat_id}`)
-        return data
+        logger.info(`Message sent to chat ${input.chat_id}`);
+        return data;
       } catch (error) {
-        logger.error(`Error sending telegram message (attempt ${attempt + 1}/${this.MAX_RETRIES}):`, error)
-        lastError = error
-        
+        logger.error(
+          `Error sending telegram message (attempt ${attempt + 1}/${this.MAX_RETRIES}):`,
+          error,
+        );
+        lastError = error;
+
         // If it's not a banned token error, don't retry
         if (!this.isBannedTokenError(error)) {
-          throw error
+          throw error;
         }
       }
     }
 
     // All retries failed
-    throw lastError || new Error('Failed to send message after retries')
+    throw lastError || new Error("Failed to send message after retries");
+  }
+
+  /**
+   * Send multiple telegram messages in bulk
+   */
+  async sendBulkMessages(inputs: SendBulkMessageInput) {
+    const results = [];
+
+    // Process sequentially to respect Telegram rate limits
+    for (const input of inputs) {
+      try {
+        const result = await this.sendMessage(input);
+        results.push({ success: true, chat_id: input.chat_id, result });
+      } catch (error: any) {
+        logger.error(`Failed to send bulk message to ${input.chat_id}:`, error);
+        results.push({
+          success: false,
+          chat_id: input.chat_id,
+          error: error.message || String(error),
+        });
+      }
+    }
+
+    return results;
   }
 
   /**
    * Send telegram notification with automatic token rotation and retry
    */
   async sendTelegram(input: SendTelegramInput) {
-    let lastError: any = null
+    let lastError: any = null;
 
     for (let attempt = 0; attempt < this.MAX_RETRIES; attempt++) {
       try {
-        const { token, tokenId } = await this.getActiveToken()
-        
+        const { token, tokenId } = await this.getActiveToken();
+
         if (!token) {
-          throw new Error('No bot token available')
+          throw new Error("No bot token available");
         }
 
         // Prepare mentions
-        const mentions = [...(input.mentions || [])]
+        const mentions = [...(input.mentions || [])];
         if (env.TELEGRAM_ADMIN && !mentions.includes(env.TELEGRAM_ADMIN)) {
-          mentions.push(env.TELEGRAM_ADMIN)
+          mentions.push(env.TELEGRAM_ADMIN);
         }
-        const adminContact = mentions.length ? `(${mentions.join(', ')})` : ''
+        const adminContact = mentions.length ? `(${mentions.join(", ")})` : "";
 
-        const message = this.formatPatientMessage(input, adminContact)
+        const message = this.formatPatientMessage(input, adminContact);
 
-        const url = `https://api.telegram.org/bot${token}/sendMessage`
-        
+        const url = `https://api.telegram.org/bot${token}/sendMessage`;
+
         const response = await fetch(url, {
-          method: 'POST',
+          method: "POST",
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
             chat_id: input.chat_id,
             text: message,
-            parse_mode: 'Markdown',
+            parse_mode: "Markdown",
           }),
-        })
+        });
 
-        const data = (await response.json()) as any
+        const data = (await response.json()) as any;
 
         if (!response.ok) {
-          const error = new Error(data.description || 'Failed to send telegram message')
-          
+          const error = new Error(
+            data.description || "Failed to send telegram message",
+          );
+
           // Check if token is banned
           if (tokenId && this.isBannedTokenError(data)) {
-            logger.warn(`Token ${tokenId} appears to be banned, marking as inactive`)
+            logger.warn(
+              `Token ${tokenId} appears to be banned, marking as inactive`,
+            );
             await this.tokenService.markTokenAsBanned(tokenId, {
-              error_message: data.description || 'Token banned/invalid'
-            })
-            
+              error_message: data.description || "Token banned/invalid",
+            });
+
             // Retry with next token
-            lastError = error
-            continue
+            lastError = error;
+            continue;
           }
-          
-          throw error
+
+          throw error;
         }
 
-        logger.info(`Patient notification sent to chat ${input.chat_id}`)
-        return data
+        logger.info(`Patient notification sent to chat ${input.chat_id}`);
+        return data;
       } catch (error) {
-        logger.error(`Error sending telegram notification (attempt ${attempt + 1}/${this.MAX_RETRIES}):`, error)
-        lastError = error
-        
+        logger.error(
+          `Error sending telegram notification (attempt ${attempt + 1}/${this.MAX_RETRIES}):`,
+          error,
+        );
+        lastError = error;
+
         // If it's not a banned token error, don't retry
         if (!this.isBannedTokenError(error)) {
-          throw error
+          throw error;
         }
       }
     }
 
     // All retries failed
-    throw lastError || new Error('Failed to send telegram message after retries')
+    throw (
+      lastError || new Error("Failed to send telegram message after retries")
+    );
   }
 
   async getMe() {
     try {
-      const { token } = await this.getActiveToken()
-      
+      const { token } = await this.getActiveToken();
+
       if (!token) {
-        throw new Error('No bot token available')
+        throw new Error("No bot token available");
       }
 
-      const url = `https://api.telegram.org/bot${token}/getMe`
-      const response = await fetch(url)
-      const data = (await response.json()) as any
+      const url = `https://api.telegram.org/bot${token}/getMe`;
+      const response = await fetch(url);
+      const data = (await response.json()) as any;
 
       if (!response.ok) {
-        throw new Error(data.description || 'Failed to get bot info')
+        throw new Error(data.description || "Failed to get bot info");
       }
 
-      return data.result
+      return data.result;
     } catch (error) {
-      logger.error('Error getting bot info:', error)
-      throw error
+      logger.error("Error getting bot info:", error);
+      throw error;
     }
   }
 
-  private formatPatientMessage(input: SendTelegramInput, adminContact: string): string {
-    let message = ''
-    
+  /**
+   * Sync registered commands to Telegram Bot API
+   */
+  async syncCommands() {
+    try {
+      const { token } = await this.getActiveToken();
+
+      if (!token) {
+        throw new Error("No bot token available");
+      }
+
+      // Format commands for Telegram API (only command and description)
+      const commands = commandRegistry.map((cmd) => ({
+        command: cmd.command,
+        description: cmd.description,
+      }));
+
+      const url = `https://api.telegram.org/bot${token}/setMyCommands`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          commands,
+        }),
+      });
+
+      const data = (await response.json()) as any;
+
+      if (!response.ok) {
+        throw new Error(data.description || "Failed to sync commands");
+      }
+
+      logger.info(
+        `Successfully synced ${commands.length} commands to Telegram`,
+      );
+      return data;
+    } catch (error) {
+      logger.error("Error syncing commands:", error);
+      throw error;
+    }
+  }
+
+  private formatPatientMessage(
+    input: SendTelegramInput,
+    adminContact: string,
+  ): string {
+    let message = "";
+
     // Gunakan \n (satu backslash) untuk enter
-    message += `🩺 *INFORMASI PASIEN*\n\n`
-    message += `*KODE PASIEN* : ${input.kode_pasien}\n`
-    message += `*Request Gender* : ${input.gender_req}\n`
-    message += `*Usia* : ${input.usia} tahun\n`
-    message += `*Jenis Kelamin* : ${input.jenis_kelamin}\n\n`
+    message += `🩺 *INFORMASI PASIEN*\n\n`;
+    message += `*KODE PASIEN* : ${input.kode_pasien}\n`;
+    message += `*Request Gender* : ${input.gender_req}\n`;
+    message += `*Usia* : ${input.usia} tahun\n`;
+    message += `*Jenis Kelamin* : ${input.jenis_kelamin}\n\n`;
 
-    message += `*Keluhan*\n${input.keluhan}\n\n`
-    message += `*Durasi Keluhan*\n${input.durasi}\n\n`
-    message += `*Kondisi Pasien*\n${input.kondisi}\n\n`
-    message += `*Riwayat Penyakit*\n${input.riwayat}\n\n`
-    message += `*Alamat Lengkap*\n${input.alamat}\n\n`
-    message += `*Request Layanan*\n${input.visit}\n\n`
-    message += `*Rencana Kunjungan*\n${input.jadwal}\n\n`
+    message += `*Keluhan*\n${input.keluhan}\n\n`;
+    message += `*Durasi Keluhan*\n${input.durasi}\n\n`;
+    message += `*Kondisi Pasien*\n${input.kondisi}\n\n`;
+    message += `*Riwayat Penyakit*\n${input.riwayat}\n\n`;
+    message += `*Alamat Lengkap*\n${input.alamat}\n\n`;
+    message += `*Request Layanan*\n${input.visit}\n\n`;
+    message += `*Rencana Kunjungan*\n${input.jadwal}\n\n`;
 
-    message += `────────────────────\n`
-    message += `🙏 *Informasi untuk Tim Fisioterapis*\n`
-    message += `Apabila berkenan menangani pasien di atas, silakan hubungi admin ${adminContact} melalui *personal chat* dengan menyertakan *KODE PASIEN* serta opsi jadwal kunjungan alternatif.`
+    message += `────────────────────\n`;
+    message += `🙏 *Informasi untuk Tim Fisioterapis*\n`;
+    message += `Apabila berkenan menangani pasien di atas, silakan hubungi admin ${adminContact} melalui *personal chat* dengan menyertakan *KODE PASIEN* serta opsi jadwal kunjungan alternatif.`;
 
-    return message
+    return message;
   }
 
   // ==================== Webhook Handler ====================
@@ -266,81 +362,19 @@ export class TelegramService {
    * Parse command from message text
    * Returns { command, args } or null if not a command
    */
-  private parseCommand(text: string): { command: string; args: string[] } | null {
-    const trimmed = text.trim()
-    if (!trimmed.startsWith('/')) {
-      return null
+  private parseCommand(
+    text: string,
+  ): { command: string; args: string[] } | null {
+    const trimmed = text.trim();
+    if (!trimmed.startsWith("/")) {
+      return null;
     }
 
-    const parts = trimmed.substring(1).split(/\s+/)
-    const command = parts[0].toLowerCase()
-    const args = parts.slice(1)
+    const parts = trimmed.substring(1).split(/\s+/);
+    const command = parts[0].toLowerCase();
+    const args = parts.slice(1);
 
-    return { command, args }
-  }
-
-  /**
-   * Handle /register [key] command
-   * Saves chat_id with the provided key to database
-   */
-  async handleRegisterCommand(chatId: string, key: string): Promise<string> {
-    try {
-      if (!key) {
-        return '❌ Usage: /register [key]\n\nExample: /register MY_PATIENT_ID'
-      }
-
-      // Import chatid service dynamically to avoid circular dependency
-      const { TelegramChatIdService } = await import('@/features/telegram-chatid')
-      const chatIdService = new TelegramChatIdService()
-
-      // Check if key already exists
-      const existingKey = await chatIdService.getChatIdByKey(key)
-      if (existingKey) {
-        return `⚠️ Key "${key}" already registered with chat ID: ${existingKey.content_value}\n\nUse a different key or update via API.`
-      }
-
-      // Check if chat_id already exists (with any key)
-      const existingChatId = await chatIdService.getChatIdByValue(chatId)
-      if (existingChatId) {
-        return `⚠️ This chat is already registered with key: "${existingChatId.content_key}"\n\nYou cannot register the same chat with multiple keys.\nIf you need to change the key, please contact the administrator.`
-      }
-
-      // Save to database
-      await chatIdService.createChatId({
-        content_key: key,
-        content_value: chatId,
-        is_active: true,
-      })
-
-      logger.info(`Chat ID ${chatId} registered with key: ${key}`)
-      return `✅ Chat ID registered successfully!\n\nKey: ${key}\nChat ID: ${chatId}\n\nYou can now use this key to send messages to this chat.`
-    } catch (error) {
-      logger.error('Error in handleRegisterCommand:', error)
-      return '❌ Failed to register chat ID. Please try again later.'
-    }
-  }
-
-  /**
-   * Handle /start command
-   */
-  async handleStartCommand(chatId: string): Promise<string> {
-    return `👋 Welcome to Fisiohome Telegram Bot!
-
-Available commands:
-📝 /register [key] - Register this chat with a key
-❓ /help - Show this help message
-
-Example:
-/register TEST_PATIENT
-
-After registration, you can send messages to this chat using the key.`
-  }
-
-  /**
-   * Handle /help command
-   */
-  async handleHelpCommand(chatId: string): Promise<string> {
-    return this.handleStartCommand(chatId)
+    return { command, args };
   }
 
   /**
@@ -350,80 +384,87 @@ After registration, you can send messages to this chat using the key.`
   async handleWebhook(update: any): Promise<void> {
     try {
       // Extract message from update
-      const message = update.message
+      const message = update.message;
       if (!message || !message.text) {
-        logger.debug('Update does not contain a text message, ignoring')
-        return
+        logger.debug("Update does not contain a text message, ignoring");
+        return;
       }
 
-      const chatId = String(message.chat.id)
-      const text = message.text
+      const chatId = String(message.chat.id);
+      const text = message.text;
 
       // Extract user info
-      const user = message.from
-      const userId = user?.id
-      const username = user?.username || 'no_username'
-      const firstName = user?.first_name || 'Unknown'
-      const lastName = user?.last_name || ''
-      const fullName = `${firstName} ${lastName}`.trim()
+      const user = message.from;
+      const userId = user?.id;
+      const username = user?.username || "no_username";
+      const firstName = user?.first_name || "Unknown";
+      const lastName = user?.last_name || "";
+      const fullName = `${firstName} ${lastName}`.trim();
 
       // Log user info
-      logger.info(`Webhook message from user: @${username} (${fullName}) [ID: ${userId}] in chat ${chatId}`)
+      logger.info(
+        `Webhook message from user: @${username} (${fullName}) [ID: ${userId}] in chat ${chatId}`,
+      );
 
       // Parse command
-      const parsed = this.parseCommand(text)
+      const parsed = this.parseCommand(text);
       if (!parsed) {
         // Not a command, ignore
-        logger.debug(`Received non-command message: ${text}`)
-        return
+        logger.debug(`Received non-command message: ${text}`);
+        return;
       }
 
-      const { command, args } = parsed
-      logger.info(`Command: /${command} | User: @${username} | Chat: ${chatId}`)
+      const { command, args } = parsed;
+      logger.info(
+        `Command: /${command} | User: @${username} | Chat: ${chatId}`,
+      );
 
-      // Check whitelist for ALL commands
-      const isAllowed = await this.checkWhitelist(userId, username)
-      if (!isAllowed) {
-        logger.warn(`User @${username} (${userId}) not in whitelist, command denied`)
-        await this.sendMessage({
-          chat_id: chatId,
-          message: '❌ Access denied.\n\nYou are not authorized to use bot commands.\nPlease contact the administrator.',
-          parse_mode: 'HTML',
-        })
-        return
-      }
+      // Dispatch ke command handler yang terdaftar di registry
+      const handler = commandRegistry.find((c) => c.command === command);
 
-      let responseText: string
+      let responseText: string;
 
-      // Handle commands
-      switch (command) {
-        case 'register':
-          responseText = await this.handleRegisterCommand(chatId, args[0])
-          break
-
-        case 'start':
-          responseText = await this.handleStartCommand(chatId)
-          break
-
-        case 'help':
-          responseText = await this.handleHelpCommand(chatId)
-          break
-
-        default:
-          responseText = `❌ Unknown command: /${command}\n\nType /help for available commands.`
+      if (!handler) {
+        responseText = `❌ Unknown command: /${command}\n\nType /help for available commands.`;
+      } else if (handler.requiresAuth) {
+        // Cek whitelist hanya untuk command yang memerlukan auth
+        const isAllowed = await this.checkWhitelist(userId, username);
+        if (!isAllowed) {
+          logger.warn(
+            `User @${username} (${userId}) not in whitelist, command /${command} denied`,
+          );
+          responseText =
+            "❌ Access denied.\n\nYou are not authorized to use this command.\nPlease contact the administrator.";
+        } else {
+          responseText = await handler.execute({
+            chatId,
+            args,
+            registry: commandRegistry,
+            user: { id: userId, username, firstName, lastName },
+          });
+        }
+      } else {
+        responseText = await handler.execute({
+          chatId,
+          args,
+          registry: commandRegistry,
+          user: { id: userId, username, firstName, lastName },
+        });
       }
 
       // Send response
       await this.sendMessage({
         chat_id: chatId,
         message: responseText,
-        parse_mode: 'HTML',
-      })
+        parse_mode: "HTML",
+      });
 
-      logger.info(`Processed command /${command} from @${username} in chat ${chatId}`)
+      logger.info(
+        `Processed command /${command} from @${username} in chat ${chatId}`,
+      );
     } catch (error) {
-      logger.error('Error in webhook handler:', error)
-      throw error
+      logger.error("Error in webhook handler:", error);
+      throw error;
     }
   }
 
@@ -432,58 +473,75 @@ After registration, you can send messages to this chat using the key.`
    * Returns true if user is allowed, false otherwise
    * Priority: Database whitelist -> ENV fallback
    */
-  private async checkWhitelist(userId: number, username: string): Promise<boolean> {
+  private async checkWhitelist(
+    userId: number,
+    username: string,
+  ): Promise<boolean> {
     try {
       // Import whitelist service
-      const { TelegramWhitelistService } = await import('@/features/telegram-whitelist')
-      const whitelistService = new TelegramWhitelistService()
+      const { TelegramWhitelistService } =
+        await import("@/features/telegram-whitelist");
+      const whitelistService = new TelegramWhitelistService();
 
       // Get all whitelist entries from database
-      const dbEntries = await whitelistService.getAllWhitelistEntries()
-      const activeEntries = dbEntries.filter(e => e.is_active)
+      const dbEntries = await whitelistService.getAllWhitelistEntries();
+      const activeEntries = dbEntries.filter((e) => e.is_active);
 
       // If database has entries, use database whitelist
       if (activeEntries.length > 0) {
-        const userIdStr = String(userId)
-        const usernameWithAt = `@${username}`.toLowerCase()
-        const usernameWithoutAt = username.toLowerCase()
+        const userIdStr = String(userId);
+        const usernameWithAt = `@${username}`.toLowerCase();
+        const usernameWithoutAt = username.toLowerCase();
 
         const isAllowed = activeEntries.some((entry: any) => {
-          const key = entry.content_key.toLowerCase()
-          return key === userIdStr || key === usernameWithAt || key === usernameWithoutAt
-        })
+          const key = entry.content_key.toLowerCase();
+          return (
+            key === userIdStr ||
+            key === usernameWithAt ||
+            key === usernameWithoutAt
+          );
+        });
 
-        logger.info(`Whitelist check (DB) for @${username} (${userId}): ${isAllowed ? 'ALLOWED' : 'DENIED'}`)
-        return isAllowed
+        logger.info(
+          `Whitelist check (DB) for @${username} (${userId}): ${isAllowed ? "ALLOWED" : "DENIED"}`,
+        );
+        return isAllowed;
       }
 
       // Fallback to ENV if database is empty
-      const whitelist = env.TELEGRAM_COMMAND_WHITELIST
-      
-      if (!whitelist || whitelist.trim() === '' || whitelist === '*') {
+      const whitelist = env.TELEGRAM_COMMAND_WHITELIST;
+
+      if (!whitelist || whitelist.trim() === "" || whitelist === "*") {
         // No whitelist or wildcard = allow all
-        logger.info(`Whitelist check (ENV fallback) for @${username}: ALLOWED (wildcard)`)
-        return true
+        logger.info(
+          `Whitelist check (ENV fallback) for @${username}: ALLOWED (wildcard)`,
+        );
+        return true;
       }
 
       // Check ENV whitelist
-      const allowedUsers = whitelist.split(',').map((u: string) => u.trim().toLowerCase())
-      const userIdStr = String(userId)
-      const usernameWithAt = `@${username}`.toLowerCase()
-      const usernameWithoutAt = username.toLowerCase()
+      const allowedUsers = whitelist
+        .split(",")
+        .map((u: string) => u.trim().toLowerCase());
+      const userIdStr = String(userId);
+      const usernameWithAt = `@${username}`.toLowerCase();
+      const usernameWithoutAt = username.toLowerCase();
 
-      const isAllowed = allowedUsers.some((allowed: string) => 
-        allowed === userIdStr || 
-        allowed === usernameWithAt || 
-        allowed === usernameWithoutAt
-      )
+      const isAllowed = allowedUsers.some(
+        (allowed: string) =>
+          allowed === userIdStr ||
+          allowed === usernameWithAt ||
+          allowed === usernameWithoutAt,
+      );
 
-      logger.info(`Whitelist check (ENV fallback) for @${username} (${userId}): ${isAllowed ? 'ALLOWED' : 'DENIED'}`)
-      return isAllowed
+      logger.info(
+        `Whitelist check (ENV fallback) for @${username} (${userId}): ${isAllowed ? "ALLOWED" : "DENIED"}`,
+      );
+      return isAllowed;
     } catch (error) {
-      logger.error('Error checking whitelist:', error)
+      logger.error("Error checking whitelist:", error);
       // On error, deny access for security
-      return false
+      return false;
     }
   }
 }

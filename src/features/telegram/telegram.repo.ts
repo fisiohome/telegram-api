@@ -12,6 +12,12 @@ export const sendMessageSchema = z.object({
 
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;
 
+export const sendBulkMessageSchema = z
+  .array(sendMessageSchema)
+  .min(1, "Array must contain at least one message");
+
+export type SendBulkMessageInput = z.infer<typeof sendBulkMessageSchema>;
+
 export const sendTelegramSchema = z.object({
   chat_id: z.string().min(1, "Chat ID is required"),
   kode_pasien: z.string(),

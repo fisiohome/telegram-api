@@ -1,0 +1,5 @@
+# Let Git handle line endings automatically
+* text=auto
+
+# Keep lock files as-is (don't normalize)
+*.lock binary
