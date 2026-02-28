@@ -83,6 +83,28 @@ export interface AppointmentAdmins {
   updated_at: Timestamp;
 }
 
+export interface AppointmentDraftAdmins {
+  admin_id: string;
+  appointment_draft_id: Int8;
+  created_at: Timestamp;
+  id: Generated<Int8>;
+  is_primary: Generated<boolean>;
+  updated_at: Timestamp;
+}
+
+export interface AppointmentDrafts {
+  admin_pic_id: string;
+  appointment_id: string | null;
+  created_at: Timestamp;
+  created_by_admin_id: string;
+  current_step: string | null;
+  expires_at: Timestamp | null;
+  form_data: Generated<Json | null>;
+  id: Generated<Int8>;
+  status: Generated<number>;
+  updated_at: Timestamp;
+}
+
 export interface AppointmentEvidencePhotos {
   content_type: string | null;
   created_at: Generated<Timestamp>;
@@ -123,6 +145,7 @@ export interface AppointmentEvidences {
    * Unique identifier for this evidence submission (timestamp-based)
    */
   nonce: string;
+  notes: string | null;
   patient_id: string;
   /**
    * JWT token containing appointment_id, patient_id, nonce as digital proof
@@ -149,6 +172,20 @@ export interface AppointmentPackageHistories {
   total_fee: Numeric;
   total_price: Numeric;
   updated_at: Timestamp;
+}
+
+export interface AppointmentReviews {
+  appointment_id: string;
+  created_at: Generated<Timestamp>;
+  deleted_at: Timestamp | null;
+  id: Generated<string>;
+  is_anonymous: Generated<boolean>;
+  is_visible: Generated<boolean>;
+  liked_aspects: string[] | null;
+  notes: string | null;
+  rating: Numeric;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
 }
 
 export interface Appointments {
@@ -193,6 +230,7 @@ export interface AppointmentSoaps {
   initial_physical_condition: string | null;
   is_final_visit: Generated<boolean>;
   next_physiotherapy_goals: string | null;
+  notes: string | null;
   /**
    * Objective: examination findings, vital signs, measurable observations
    */
@@ -293,25 +331,21 @@ export interface LocationServices {
 }
 
 export interface OrderDetails {
-  additional_fee: Generated<Numeric | null>;
-  allocated_amount: Generated<Numeric | null>;
   appointment_id: string | null;
-  base_fee: Generated<Numeric>;
   created_at: Generated<Timestamp>;
   id: Generated<string>;
-  is_paid: Generated<boolean | null>;
   order_id: string;
-  subtotal_fee: Generated<Numeric>;
-  travel_fee: Generated<Numeric | null>;
   updated_at: Generated<Timestamp>;
-  visit_number: number;
-  visit_status: Generated<string | null>;
 }
 
 export interface Orders {
   booking_draft_id: string | null;
   cancellation_reason: string | null;
   cancelled_at: Timestamp | null;
+  /**
+   * Who cancelled: PATIENT, ADMIN, or SYSTEM
+   */
+  cancelled_by: string | null;
   completed_at: Timestamp | null;
   created_at: Generated<Timestamp>;
   discount_amount: Generated<Numeric | null>;
@@ -353,31 +387,6 @@ export interface Orders {
   user_id: string | null;
   voucher_code: string | null;
   voucher_id: string | null;
-}
-
-export interface OrderSummary {
-  completed_payments: Int8 | null;
-  completed_visits: Int8 | null;
-  created_at: Timestamp | null;
-  discount_amount: Numeric | null;
-  invoice_number: string | null;
-  last_payment_date: Timestamp | null;
-  order_id: string | null;
-  order_status: string | null;
-  package_id: Int8 | null;
-  paid_amount: Numeric | null;
-  patient_id: string | null;
-  payment_status: string | null;
-  pending_visits: Int8 | null;
-  registration_number: string | null;
-  remaining_amount: Numeric | null;
-  scheduled_visits: Int8 | null;
-  total_amount: Numeric | null;
-  total_payments: Int8 | null;
-  total_visits: Int8 | null;
-  updated_at: Timestamp | null;
-  verified_paid_amount: Numeric | null;
-  voucher_code: string | null;
 }
 
 export interface Packages {
@@ -434,6 +443,10 @@ export interface Patients {
   id: Generated<string>;
   name: string;
   patient_contact_id: Int8 | null;
+  /**
+   * Formatted patient ID (FH-P-0000001) - auto-generated on insert
+   */
+  patient_number: string;
   updated_at: Timestamp;
   user_id: string | null;
 }
@@ -554,6 +567,39 @@ export interface ReminderHistories {
   updated_at: Generated<Timestamp>;
 }
 
+export interface RescheduleRequestHistories {
+  /**
+   * CREATED, UPDATED, RESUBMITTED, APPROVED, REJECTED, CANCELLED
+   */
+  action: string;
+  changed_by: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<Int8>;
+  new_request_text: string | null;
+  new_status: string;
+  notes: string | null;
+  old_request_text: string | null;
+  old_status: string | null;
+  reschedule_request_id: string;
+}
+
+export interface RescheduleRequests {
+  appointment_id: string;
+  approved_by: string | null;
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  deleted_at: Timestamp | null;
+  id: Generated<string>;
+  rejected_reason: string | null;
+  request_text: string;
+  requested_new_datetime: Timestamp | null;
+  /**
+   * PENDING, APPROVED, REJECTED, CANCELLED
+   */
+  status: Generated<string>;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface RevokedTokens {
   created_at: Timestamp;
   expires_at: Timestamp;
@@ -570,6 +616,10 @@ export interface ServiceCredentials {
    * JSON array of allowed endpoint patterns. NULL allows all endpoints.
    */
   allowed_endpoints: Json | null;
+  /**
+   * Optional user ID to lock this service credential to a specific user. Used for external services that should only operate on behalf of one user.
+   */
+  bound_user_id: string | null;
   /**
    * For external clients: unique client identifier for multi-tenant isolation
    */
@@ -763,6 +813,110 @@ export interface SolidQueueSemaphores {
   value: Generated<number>;
 }
 
+export interface SyncLogs {
+  /**
+   * Timestamp when job was cancelled by user
+   */
+  cancelled_at: Timestamp | null;
+  /**
+   * Timestamp when the sync job finished (either SUCCESS or FAILED). NULL if still PENDING or PROCESSING
+   */
+  completed_at: Timestamp | null;
+  /**
+   * Timestamp when the sync job was created/queued
+   */
+  created_at: Generated<Timestamp>;
+  /**
+   * User who initiated the sync job. NULL if user was deleted
+   */
+  created_by: string | null;
+  /**
+   * JSON array of validation/processing errors. Format: [{row: 10, field: "therapist_name", value: "invalid", message: "error description"}]
+   */
+  error_details: Json | null;
+  /**
+   * Original filename of uploaded Excel file (only for FILE_UPLOAD type)
+   */
+  file_name: string | null;
+  id: Generated<string>;
+  /**
+   * Last heartbeat from worker, used for stale job detection
+   */
+  last_heartbeat_at: Timestamp | null;
+  /**
+   * Storage path in Cloudflare R2 bucket where the uploaded file is stored
+   */
+  r2_path: string | null;
+  /**
+   * Name of the Excel sheet that was processed. NULL means first/default sheet was used
+   */
+  sheet_name: string | null;
+  /**
+   * Origin of the sync data. GOOGLE_SHEET = from Google Sheets URL, FILE_UPLOAD = from Excel file upload
+   */
+  source_type: string;
+  /**
+   * Original Google Sheets URL (only for GOOGLE_SHEET type)
+   */
+  source_url: string | null;
+  /**
+   * Current job status: PENDING = queued, PROCESSING = running, SUCCESS = completed successfully, FAILED = completed with errors
+   */
+  status: Generated<string>;
+  /**
+   * JSON object with sync statistics. Format: {total_rows: 100, inserted: 95, skipped: 0, failed: 5, new_therapists: 2, new_patients: 10}
+   */
+  summary: Json | null;
+}
+
+export interface SyncMappings {
+  created_at: Generated<Timestamp | null>;
+  external_id: string;
+  id: Generated<string>;
+  resource_id: string;
+  resource_type: string;
+  source_info: Generated<Json | null>;
+  updated_at: Generated<Timestamp | null>;
+}
+
+export interface SyncMonolithLogs {
+  /**
+   * When the sync operation completed
+   */
+  completed_at: Timestamp | null;
+  created_at: Generated<Timestamp>;
+  /**
+   * Full error stack traces or additional details
+   */
+  details: string | null;
+  id: Generated<string>;
+  /**
+   * Detailed message with item names and reasons
+   */
+  logger_message: string | null;
+  /**
+   * When the sync operation started
+   */
+  started_at: Timestamp | null;
+  /**
+   * Current status of the sync
+   */
+  status: Generated<string>;
+  /**
+   * Type of data synced (therapists, brands, etc.)
+   */
+  sync_type: string;
+  /**
+   * Brief message shown to users in UI
+   */
+  ui_message: string | null;
+  updated_at: Generated<Timestamp>;
+  /**
+   * User who performed the sync
+   */
+  user_id: string;
+}
+
 export interface TherapistAddresses {
   active: Generated<boolean | null>;
   address_id: Int8;
@@ -832,6 +986,14 @@ export interface TherapistRegistrationCounters {
 
 export interface Therapists {
   batch: number;
+  /**
+   * Optional contract end date for the therapist
+   */
+  contract_end_date: Timestamp | null;
+  /**
+   * Optional contract start date for the therapist
+   */
+  contract_start_date: Timestamp | null;
   created_at: Timestamp;
   employment_status: EmploymentStatusEnum;
   employment_type: EmploymentTypeEnum;
@@ -916,6 +1078,10 @@ export interface Users {
    * User phone number (moved from customers table)
    */
   phone_number: string | null;
+  /**
+   * Platform/channel where user registered from (e.g., WEB, MOBILE_ANDROID, MOBILE_IOS, ADMIN_PANEL). Used for acquisition analytics and tracking.
+   */
+  registration_source: string | null;
   remember_created_at: Timestamp | null;
   reset_password_sent_at: Timestamp | null;
   reset_password_token: string | null;
@@ -966,9 +1132,12 @@ export interface DB {
   admins: Admins;
   appointment_address_histories: AppointmentAddressHistories;
   appointment_admins: AppointmentAdmins;
+  appointment_draft_admins: AppointmentDraftAdmins;
+  appointment_drafts: AppointmentDrafts;
   appointment_evidence_photos: AppointmentEvidencePhotos;
   appointment_evidences: AppointmentEvidences;
   appointment_package_histories: AppointmentPackageHistories;
+  appointment_reviews: AppointmentReviews;
   appointment_soaps: AppointmentSoaps;
   appointment_status_histories: AppointmentStatusHistories;
   appointments: Appointments;
@@ -981,7 +1150,6 @@ export interface DB {
   location_services: LocationServices;
   locations: Locations;
   order_details: OrderDetails;
-  order_summary: OrderSummary;
   orders: Orders;
   packages: Packages;
   patient_addresses: PatientAddresses;
@@ -991,6 +1159,8 @@ export interface DB {
   payment_transactions: PaymentTransactions;
   payments: Payments;
   reminder_histories: ReminderHistories;
+  reschedule_request_histories: RescheduleRequestHistories;
+  reschedule_requests: RescheduleRequests;
   revoked_tokens: RevokedTokens;
   schema_migrations: SchemaMigrations;
   service_credentials: ServiceCredentials;
@@ -1009,6 +1179,9 @@ export interface DB {
   solid_queue_recurring_tasks: SolidQueueRecurringTasks;
   solid_queue_scheduled_executions: SolidQueueScheduledExecutions;
   solid_queue_semaphores: SolidQueueSemaphores;
+  sync_logs: SyncLogs;
+  sync_mappings: SyncMappings;
+  sync_monolith_logs: SyncMonolithLogs;
   therapist_addresses: TherapistAddresses;
   therapist_adjusted_availabilities: TherapistAdjustedAvailabilities;
   therapist_appointment_schedules: TherapistAppointmentSchedules;
